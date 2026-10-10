@@ -1,0 +1,22 @@
+plugins {
+    id 'java'
+    id 'application'
+}
+group = 'tw.jimmy'
+version = '0.7.2'
+java { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
+application { mainClass = 'tw.jimmy.aioffice.Main' }
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = 17
+}
+jar {
+    archiveFileName = 'AI-Office-Java.jar'
+    manifest { attributes 'Main-Class': application.mainClass.get() }
+}
+tasks.register('verifyCore', JavaExec) {
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'tw.jimmy.aioffice.CoreTest'
+}
+check.dependsOn verifyCore

@@ -1,0 +1,9 @@
+build/
+.gradle/
+.ai-office-java/
+office.json
+claude-quota.json
+*.log
+.env
+.env.*
+node_modules/
