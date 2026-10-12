@@ -44,4 +44,24 @@ final class Company {
         catch(IllegalArgumentException e){throw new IOException("公司模型 JSON 回覆格式無效");}
         finally{future.cancel(true);if(body!=null)try{body.close();}catch(IOException ignored){}reader.shutdownNow();}
     }
+    static List<String> fetchModels(Map<String,Object> c)throws Exception {
+        validate(c,false);
+        String url=str(c,"baseUrl").strip().replaceAll("/+$","");
+        if(url.isBlank())return List.of();
+        if(url.endsWith("/chat/completions"))url=url.substring(0,url.length()-"/chat/completions".length());
+        URI modelsUri;try{modelsUri=URI.create(url.endsWith("/models")?url:url+"/models");}catch(Exception e){throw new IllegalArgumentException("公司 URL 格式無效");}
+        String key=str(c,"apiKey");int seconds=timeout(c);
+        HttpClient client=HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(Math.min(seconds,10))).followRedirects(HttpClient.Redirect.NEVER).build();
+        var builder=HttpRequest.newBuilder(modelsUri).timeout(Duration.ofSeconds(Math.min(seconds,15))).header("Accept","application/json");
+        if(!key.isBlank())builder.header("Authorization","Bearer "+key);
+        var response=client.send(builder.GET().build(),HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        if(response.statusCode()<200||response.statusCode()>=300)throw new IOException("公司模型清單 HTTP "+response.statusCode());
+        var obj=object(parse(response.body()));List<String> list=new ArrayList<>();
+        if(obj.get("data")instanceof List){
+            for(Object item:array(obj.get("data"))){
+                if(item instanceof Map){String id=str(object(item),"id");if(!id.isBlank())list.add(id);}
+            }
+        }
+        return list;
+    }
 }
