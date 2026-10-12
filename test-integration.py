@@ -267,6 +267,24 @@ try:
     check(len(mr_item['parallelFindings']) == 2, 'parallel findings collected for 3 agents')
     check(len(mr_item['crossReviews']) == 2, 'cross reviews completed for 3 agents')
     check(len(mr_item['summaryReport']) > 0, 'summary report generated')
+
+    t_del = post('task', {'owner': 'Gemini', 'title': 'Task To Delete'})['id']
+    wait('tasks', t_del, {'完成'})
+    check(post('task-delete', {'id': t_del})['canUndo'] is True, 'task delete returns undoable')
+    undo_res = post('undo-delete', {})
+    check(undo_res['ok'] is True and undo_res['id'] == t_del, 'undo task delete recovers task')
+
+    mr_rev = post('mr-review', {'mrUrl': 'https://gitlab.example.com/org/repo/-/merge_requests/1', 'baseSha': 'main', 'headSha': 'feat-branch', 'participants': ['Gemini','Antigravity']})['id']
+    mr_item = wait('mrReviews', mr_rev, {'已完成','失敗'}, timeout=120)
+    check(mr_item['status'] == '已完成', 'multi-agent MR review pipeline completed')
+    check(len(mr_item['parallelFindings']) == 2, 'parallel findings collected for 2 agents')
+    check(len(mr_item['crossReviews']) == 2, 'cross reviews completed for 2 agents')
+    check(len(mr_item['summaryReport']) > 0, 'summary report generated')
+    t_del = post('task', {'owner': 'Gemini', 'title': 'Task To Delete'})['id']
+    wait('tasks', t_del, {'完成'})
+    check(post('task-delete', {'id': t_del})['canUndo'] is True, 'task delete returns undoable')
+    undo_res = post('undo-delete', {})
+    check(undo_res['ok'] is True and undo_res['id'] == t_del, 'undo task delete recovers task')
     diagnostic=state()['usage']['Company']
     stop_server();start()
     check(state()['usage']['Company']==diagnostic,'diagnostic usage persists across restart')

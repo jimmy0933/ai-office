@@ -12,6 +12,7 @@ final class Office implements AutoCloseable {
     final Map<String,Object> quotas=new LinkedHashMap<>();long quotaChecked;boolean quotaBusy;
     final Path data;final FileChannel lockChannel;final FileLock dataLock;final Agents agents=new Agents();final ExecutorService workers=Executors.newFixedThreadPool(4);
     final Map<String,Agents.Control> active=new HashMap<>();Map<String,Object> state;boolean closing;
+    Map<String,Object> lastDeleted=null;
     Office(Path data)throws Exception {
         this.data=data.toAbsolutePath();Files.createDirectories(this.data);lockChannel=FileChannel.open(this.data.resolve("office.lock"),StandardOpenOption.CREATE,StandardOpenOption.WRITE);
         FileLock lock;try{lock=lockChannel.tryLock();}catch(OverlappingFileLockException e){lock=null;}if(lock==null){lockChannel.close();throw new IllegalArgumentException("同一資料目錄的 AI Office 已在執行。請先結束原本的程式。");}dataLock=lock;Path file=this.data.resolve("office.json");
@@ -130,7 +131,6 @@ final class Office implements AutoCloseable {
     }
     synchronized Object followupTask(String id,String text)throws Exception {
         var t=find("tasks",id);
-        if(active.containsKey(id)||str(t,"status").equals("待核准"))throw new IllegalArgumentException("任務仍在執行或等待核准");
         if(text.isBlank()||text.length()>10000)throw new IllegalArgumentException("對話修正內容無效");
         var history=array(t.get("history"));
         if(history.isEmpty()&&!str(t,"result").isBlank()){
@@ -146,11 +146,37 @@ final class Office implements AutoCloseable {
         return map("ok",true);
     }
     synchronized Object deleteTask(String id)throws Exception {
-        if(active.containsKey(id))throw new IllegalArgumentException("無法刪除正在執行的任務");
+        if(active.containsKey(id))stop(id);
         var list=array(state.get("tasks"));
-        boolean removed=list.removeIf(o->str(object(o),"id").equals(id));
-        if(!removed)throw new IllegalArgumentException("找不到要刪除的任務");
-        event("你","已刪除任務");save();return map("ok",true);
+        var opt=list.stream().map(Json::object).filter(o->str(o,"id").equals(id)).findFirst();
+        if(opt.isEmpty())throw new IllegalArgumentException("找不到要刪除的任務");
+        var t=opt.get();
+        lastDeleted=map("kind","task","item",parse(stringify(t)));
+        list.remove(t);
+        event("你","已刪除任務："+str(t,"title"));save();return map("ok",true,"canUndo",true);
+    }
+    synchronized Object deleteMeeting(String id)throws Exception {
+        if(active.containsKey(id))stop(id);
+        var list=array(state.get("meetings"));
+        var opt=list.stream().map(Json::object).filter(o->str(o,"id").equals(id)).findFirst();
+        if(opt.isEmpty())throw new IllegalArgumentException("找不到要刪除的會議");
+        var m=opt.get();
+        lastDeleted=map("kind","meeting","item",parse(stringify(m)));
+        list.remove(m);
+        event("你","已刪除會議："+str(m,"topic"));save();return map("ok",true,"canUndo",true);
+    }
+    synchronized Object undoDelete()throws Exception {
+        if(lastDeleted==null)throw new IllegalArgumentException("沒有可復原的刪除紀錄");
+        String kind=str(lastDeleted,"kind");
+        var item=object(lastDeleted.get("item"));
+        if(kind.equals("task")){
+            array(state.get("tasks")).add(0,item);
+            event("你","已復原刪除的任務："+str(item,"title"));
+        }else if(kind.equals("meeting")){
+            array(state.get("meetings")).add(0,item);
+            event("你","已復原刪除的會議："+str(item,"topic"));
+        }
+        lastDeleted=null;save();return map("ok",true,"kind",kind,"id",str(item,"id"));
     }
     private synchronized void launch(String id,Consumer<Agents.Control> run){Agents.Control ctrl=new Agents.Control();active.put(id,ctrl);workers.execute(()->{ctrl.thread=Thread.currentThread();try{ctrl.check();run.accept(ctrl);}catch(InterruptedException e){Thread.interrupted();synchronized(this){for(String kind:List.of("tasks","meetings"))for(Object o:array(state.get(kind))){var v=object(o);if(str(v,"id").equals(id)){v.put("status","已停止");v.put("error","已停止");}}if(!closing)saved();}}
         finally{synchronized(this){active.remove(id);ctrl.thread=null;}Thread.interrupted();}});}

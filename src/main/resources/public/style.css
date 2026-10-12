@@ -12,3 +12,5 @@ input[type=checkbox]{display:inline-block;width:auto;margin-right:8px}.team-pane
 .agent-model{overflow-wrap:anywhere}
 @media(max-width:1100px){.work-grid{grid-template-columns:290px minmax(0,1fr)}}
 @media(max-width:800px){.work-grid{grid-template-columns:minmax(0,1fr)}.team-panel #agents{grid-template-columns:minmax(0,1fr)}}
+
+.card-close-btn{border:0;background:transparent;color:var(--muted);font-size:16px;line-height:1;padding:0 4px;border-radius:3px;cursor:pointer}.card-close-btn:hover{color:#f1aaa1;background:#382626}

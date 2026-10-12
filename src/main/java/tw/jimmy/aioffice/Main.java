@@ -66,7 +66,7 @@ public final class Main {
             Object result=switch(path){
                 case "/api/quota-terminal"->office.agents.quotaTerminal(str(body,"provider"),office.config());case "/api/quota-refresh"->office.refreshQuota();case "/api/claude-login"->office.agents.login(office.config());case "/api/company-test"->office.testCompany();
                 case "/api/config"->office.updateConfig(body);case "/api/check"->office.check();case "/api/task"->office.addTask(body);
-                case "/api/retry"->office.retry(str(body,"id"));case "/api/task-followup"->office.followupTask(str(body,"id"),str(body,"text"));case "/api/task-delete"->office.deleteTask(str(body,"id"));case "/api/stop"->office.stop(str(body,"id"));case "/api/approval"->office.decide(str(body,"id"),str(body,"decision"));
+                case "/api/retry"->office.retry(str(body,"id"));case "/api/task-followup"->office.followupTask(str(body,"id"),str(body,"text"));case "/api/task-delete"->office.deleteTask(str(body,"id"));case "/api/meeting-delete"->office.deleteMeeting(str(body,"id"));case "/api/undo-delete"->office.undoDelete();case "/api/stop"->office.stop(str(body,"id"));case "/api/approval"->office.decide(str(body,"id"),str(body,"decision"));
                 case "/api/meeting"->office.addMeeting(body);case "/api/interject"->office.interject(str(body,"id"),str(body,"text"));
                 case "/api/mr-review"->office.addMrReview(body);
                 default->throw new IllegalArgumentException("找不到此 API");};respond(x,200,result);
@@ -91,8 +91,25 @@ public final class Main {
         }
 
         Log.init(jarDir());
-        Path data=Path.of(System.getProperty("user.home"),".ai-office-java");int port=4317;boolean browser=true;
-        for(int i=0;i<args.length;i++)switch(args[i]){case "--data"->data=Path.of(args[++i]);case "--port"->port=Integer.parseInt(args[++i]);case "--no-browser"->browser=false;case "--help"->{System.out.println("AI Office Java: java -jar AI-Office-Java.jar [--port 4317] [--data PATH] [--no-browser]");return;}default->throw new IllegalArgumentException("未知參數："+args[i]);}
+        Path data=null;
+        String workspaceArg="";
+        int port=4317;boolean browser=true;
+        for(int i=0;i<args.length;i++)switch(args[i]){
+            case "--workspace"->workspaceArg=args[++i];
+            case "--data"->data=Path.of(args[++i]);
+            case "--port"->port=Integer.parseInt(args[++i]);
+            case "--no-browser"->browser=false;
+            case "--help"->{System.out.println("AI Office Java: java -jar AI-Office-Java.jar [--port 4317] [--workspace PATH] [--data PATH] [--no-browser]");return;}
+            default->throw new IllegalArgumentException("未知參數："+args[i]);
+        }
+
+        if(data==null){
+            if(!workspaceArg.isBlank()){
+                data=Path.of(workspaceArg,".ai-office").toAbsolutePath().normalize();
+            }else{
+                data=Path.of(System.getProperty("user.home"),".ai-office-java").toAbsolutePath().normalize();
+            }
+        }
         if(port<0||port>65535)throw new IllegalArgumentException("埠號無效");Main app=new Main(data,port);Runtime.getRuntime().addShutdownHook(new Thread(app::close));app.server.start();
         Log.info("AI Office Java 0.7.2 started in JAR dir: "+jarDir()+", data dir: "+data.toAbsolutePath()+", server: "+app.origin);
         System.out.println("AI Office Java 0.7.2\n辦公室："+app.origin+"\n紀錄："+data.toAbsolutePath()+"\n僅限本機 · Ctrl+C 停止");

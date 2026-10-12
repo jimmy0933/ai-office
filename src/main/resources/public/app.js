@@ -19,8 +19,8 @@ function render(){if(!state)return;const tasks=state.tasks,meetings=state.meetin
   $('#recent-tasks').innerHTML=tasks.slice(0,4).map(t=>`<div class="recent-row"><span class="who">${escape(t.owner)}</span><button class="text-button title" data-open-task="${t.id}">${escape(t.title)}</button>${badge(t.status)}</div>`).join('')||'<div class="empty">還沒有任務。先指派一件小事吧。</div>';
   $('#events').innerHTML=state.events.slice(-20).reverse().map(e=>`<div class="event-row"><span>${time(e.at)}</span><b>${escape(e.who)}</b><span>${escape(e.text)}</span></div>`).join('')||'<div class="empty">實際工作事件會出現在這裡。</div>';
   if(!selectedTask&&tasks[0])selectedTask=tasks[0].id;if(!selectedMeeting&&meetings[0])selectedMeeting=meetings[0].id;
-  $('#task-list').innerHTML=tasks.map(t=>`<button class="select-card ${t.id===selectedTask?'selected':''}" data-task="${t.id}"><strong>${escape(t.title)}</strong>${badge(t.status)} <small>${escape(t.owner)}</small></button>`).join('');renderTask();
-  $('#meeting-list').innerHTML=meetings.map(m=>`<button class="select-card ${m.id===selectedMeeting?'selected':''}" data-meeting="${m.id}"><strong>${escape(m.topic)}</strong>${badge(m.status)}</button>`).join('');renderMeeting();renderMrReview();
+  $('#task-list').innerHTML=tasks.map(t=>`<div class="select-card ${t.id===selectedTask?'selected':''}" data-task="${t.id}"><div style="display:flex;justify-content:space-between;align-items:flex-start"><strong>${escape(t.title)}</strong><button class="card-close-btn" data-delete-task="${t.id}" aria-label="刪除任務" title="刪除任務">×</button></div>${badge(t.status)} <small>${escape(t.owner)}</small></div>`).join('');renderTask();
+  $('#meeting-list').innerHTML=meetings.map(m=>`<div class="select-card ${m.id===selectedMeeting?'selected':''}" data-meeting="${m.id}"><div style="display:flex;justify-content:space-between;align-items:flex-start"><strong>${escape(m.topic)}</strong><button class="card-close-btn" data-delete-meeting="${m.id}" aria-label="刪除會議" title="刪除會議">×</button></div>${badge(m.status)}</div>`).join('');renderMeeting();renderMrReview();
   if(!configLoaded){const f=$('#config-form');f.elements.workspace.value=state.config.workspace;f.elements.sessionDir.value=state.config.sessionDir||'';for(const p of ['Codex','Antigravity','Gemini','Claude']){f.elements[p.toLowerCase()+'Command'].value=state.config[p].command;f.elements[p.toLowerCase()+'Model'].value=state.config[p].model;}const co=state.config.Company;f.elements.companyBaseUrl.value=co.baseUrl;f.elements.companyModel.value=co.model;f.elements.companyQuotaUrl.value=co.quotaUrl||'';f.elements.companyTimeout.value=co.timeoutSeconds;f.elements.companyApiKey.placeholder=co.hasApiKey?'已保存；留白保留原 Key':'無需認證可留白';configLoaded=true;loadOptions();}
   renderUsage();drawRoom();
 }
@@ -258,3 +258,30 @@ if(mrForm){
     }finally{ b.disabled = false; }
   });
 }
+
+document.addEventListener('click', e => {
+  const deleteTaskBtn = e.target.closest('[data-delete-task]');
+  if (deleteTaskBtn) {
+    e.stopPropagation();
+    const id = deleteTaskBtn.dataset.deleteTask;
+    if (!confirm('確定要刪除此任務？')) return;
+    api('task-delete', { id }).then(r => {
+      toast('任務已刪除' + (r.canUndo ? ' [點此復原]' : ''));
+      if (selectedTask === id) selectedTask = '';
+      refresh();
+    }).catch(err => toast(err.message, true));
+    return;
+  }
+  const deleteMeetingBtn = e.target.closest('[data-delete-meeting]');
+  if (deleteMeetingBtn) {
+    e.stopPropagation();
+    const id = deleteMeetingBtn.dataset.deleteMeeting;
+    if (!confirm('確定要刪除此會議？')) return;
+    api('meeting-delete', { id }).then(r => {
+      toast('會議已刪除' + (r.canUndo ? ' [點此復原]' : ''));
+      if (selectedMeeting === id) selectedMeeting = '';
+      refresh();
+    }).catch(err => toast(err.message, true));
+    return;
+  }
+});
