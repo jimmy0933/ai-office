@@ -94,14 +94,7 @@ final class Agents {
     List<String> discoverModels(String provider,Map<String,Object> config)throws Exception {
         if(provider.equals("Company"))return Company.fetchModels(object(config.get("Company")));
         var settings=object(config.get(provider));
-        List<String> defaults=switch(provider){
-            case "Codex"->List.of("gpt-4o","gpt-4o-mini","o1","o1-mini","o3-mini");
-            case "Gemini"->List.of("gemini-2.5-pro","gemini-2.5-flash","gemini-2.0-flash","gemini-1.5-pro","gemini-1.5-flash");
-            case "Antigravity"->List.of("gemini-2.5-pro","gemini-2.5-flash","claude-3-7-sonnet","claude-3-5-sonnet");
-            case "Claude"->List.of("claude-3-7-sonnet","claude-3-5-sonnet","claude-3-5-haiku","claude-3-opus");
-            default->List.of();
-        };
-        Set<String> set=new LinkedHashSet<>(defaults);
+        Set<String> set=new LinkedHashSet<>();
         try{
             List<String> command=new ArrayList<>(resolve(str(settings,"command"),provider));
             if(provider.equals("Antigravity")){
@@ -111,7 +104,7 @@ final class Agents {
                 for(String line:out.split("\n")){
                     String trimmed=line.trim();
                     if(trimmed.startsWith("- ")&&trimmed.length()>2)set.add(trimmed.substring(2).trim());
-                    else if(!trimmed.isBlank()&&!trimmed.contains(" ")&&!trimmed.startsWith("Usage"))set.add(trimmed);
+                    else if(!trimmed.isBlank()&&!trimmed.contains(" ")&&!trimmed.startsWith("Usage")&&!trimmed.startsWith("Models:"))set.add(trimmed);
                 }
             }
         }catch(Exception ignored){}
