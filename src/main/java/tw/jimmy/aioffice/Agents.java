@@ -46,8 +46,14 @@ final class Agents {
             if(name.endsWith(".cmd")||name.endsWith(".bat")){
                 if(provider.equals("Antigravity"))throw new IllegalArgumentException("請指定官方 Antigravity CLI 的 agy.exe，不是 IDE 的 CMD 啟動檔");
                 String rel=provider.equals("Codex")?"node_modules/@openai/codex/bin/codex.js":provider.equals("Claude")?"node_modules/@anthropic-ai/claude-code/cli.js":"node_modules/@google/gemini-cli/dist/index.js";
-                Path js=p.toAbsolutePath().getParent().resolve(rel);if(!Files.isRegularFile(js))throw new IllegalArgumentException("只支援官方 npm CLI 的 CMD 啟動檔；請指定 .exe 或官方 CLI 路徑");
-                Path localNode=p.toAbsolutePath().getParent().resolve("node.exe");List<String> node=Files.isRegularFile(localNode)?List.of(localNode.toString()):resolve("node","Node");List<String> result=new ArrayList<>(node);result.add(js.toString());return result;
+                Path js=p.toAbsolutePath().getParent().resolve(rel);
+                if(Files.isRegularFile(js)){
+                    Path localNode=p.toAbsolutePath().getParent().resolve("node.exe");
+                    List<String> node=Files.isRegularFile(localNode)?List.of(localNode.toString()):resolve("node","Node");
+                    List<String> result=new ArrayList<>(node);result.add(js.toString());return result;
+                }
+                if(WINDOWS){return List.of("cmd.exe","/c",p.toAbsolutePath().toString());}
+                throw new IllegalArgumentException("只支援官方 npm CLI 的 CMD 啟動檔；請指定 .exe 或官方 CLI 路徑");
             }
             if(name.endsWith(".js")){List<String> result=new ArrayList<>(resolve("node","Node"));result.add(p.toString());return result;}
             if(!WINDOWS&&!Files.isExecutable(p))continue;return List.of(p.toAbsolutePath().toString());
