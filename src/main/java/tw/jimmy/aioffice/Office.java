@@ -42,8 +42,10 @@ final class Office implements AutoCloseable {
     Object discoverOptions()throws Exception {
         var c=config();Map<String,Object> res=new LinkedHashMap<>();
         for(String p:Agents.PROVIDERS){
-            List<String> execs=Agents.findExecutables(p);
-            List<String> models=agents.discoverModels(p,c);
+            List<String> execs=List.of();
+            List<String> models=List.of();
+            try{execs=Agents.findExecutables(p);}catch(Exception ignored){}
+            try{models=agents.discoverModels(p,c);}catch(Exception ignored){}
             res.put(p,map("executables",execs,"models",models));
         }
         return res;
