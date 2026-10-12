@@ -8,7 +8,17 @@ import java.util.*;
 import static tw.jimmy.aioffice.Json.*;
 
 final class ProjectFiles {
-    static Path root(String s)throws Exception {if(s.isBlank())throw new IllegalArgumentException("請先設定專案資料夾");Path p=Path.of(s).toRealPath();if(!Files.isDirectory(p))throw new IllegalArgumentException("專案路徑不是資料夾");return p;}
+    static Path root(String s)throws Exception {
+        s=s.strip();
+        if((s.startsWith("\"")&&s.endsWith("\""))||(s.startsWith("'")&&s.endsWith("'"))){s=s.substring(1,s.length()-1).strip();}
+        if(s.equals("~")||s.startsWith("~/")||s.startsWith("~\\")||s.startsWith("~"+java.io.File.separator)){
+            s=System.getProperty("user.home")+s.substring(1);
+        }
+        if(s.isBlank())throw new IllegalArgumentException("請先設定專案資料夾");
+        Path p=Path.of(s).toAbsolutePath().normalize();
+        if(!Files.isDirectory(p))throw new IllegalArgumentException("專案路徑不是有效的資料夾："+s);
+        return p.toRealPath();
+    }
     static boolean hidden(String s){String name=s.toLowerCase(Locale.ROOT);return s.startsWith(".")||Set.of("node_modules","data","build","target","id_rsa","id_ed25519","id_dsa","id_ecdsa","credentials.json","service-account.json").contains(name)||List.of(".key",".pem",".p12",".pfx",".jks",".keystore").stream().anyMatch(name::endsWith);}
     static Path resolve(Path root,String rel)throws Exception {
         if(rel.isBlank()||rel.contains("\\")||rel.contains(":")||Path.of(rel).isAbsolute())throw new IllegalArgumentException("請使用專案內的相對路徑");
