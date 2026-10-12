@@ -66,7 +66,7 @@ public final class Main {
             Object result=switch(path){
                 case "/api/quota-terminal"->office.agents.quotaTerminal(str(body,"provider"),office.config());case "/api/quota-refresh"->office.refreshQuota();case "/api/claude-login"->office.agents.login(office.config());case "/api/company-test"->office.testCompany();
                 case "/api/config"->office.updateConfig(body);case "/api/check"->office.check();case "/api/task"->office.addTask(body);
-                case "/api/retry"->office.retry(str(body,"id"));case "/api/stop"->office.stop(str(body,"id"));case "/api/approval"->office.decide(str(body,"id"),str(body,"decision"));
+                case "/api/retry"->office.retry(str(body,"id"));case "/api/task-delete"->office.deleteTask(str(body,"id"));case "/api/stop"->office.stop(str(body,"id"));case "/api/approval"->office.decide(str(body,"id"),str(body,"decision"));
                 case "/api/meeting"->office.addMeeting(body);case "/api/interject"->office.interject(str(body,"id"),str(body,"text"));
                 default->throw new IllegalArgumentException("找不到此 API");};respond(x,200,result);
         }catch(IllegalArgumentException e){respond(x,400,map("error",Agents.clean(e)));}catch(Exception e){respond(x,500,map("error",Agents.clean(e)));}finally{x.close();}
@@ -83,7 +83,7 @@ public final class Main {
         if(args.length>=2&&(args[0].equals("--capture-claude-quota")||args[0].equals("--capture-antigravity-quota")||args[0].equals("--capture-gemini-quota")||args[0].equals("--capture-quota"))){
             byte[] bytes=System.in.readNBytes(65537);if(bytes.length>65536)throw new IllegalArgumentException("輸入過大");
             var json=object(parse(new String(bytes,StandardCharsets.UTF_8)));
-            String targetPath=args[0].equals("--capture-quota")?args[2]:args[1];
+            String targetPath=args[0].equals("--capture-quota")?(args.length>2?args[2]:args[1]):args[1];
             Path target=Path.of(targetPath).toAbsolutePath();Files.createDirectories(target.getParent());
             ProjectFiles.atomicWrite(target,stringify(args[0].equals("--capture-claude-quota")?map("rate_limits",json.getOrDefault("rate_limits",map())):json));
             System.out.println("AI Office quota synced");return;

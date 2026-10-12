@@ -48,13 +48,17 @@ final class Usage {
     static Map<String,Object> antigravity(Map<String,Object> config, Path data){
         Path file = data.resolve("antigravity-quota.json");
         if(Files.isRegularFile(file)){
-            try{return snapshot(file, "Antigravity 官方快照");}catch(Exception ignored){}
+            try{return snapshot(file, "Antigravity 官方 statusline 快照");}catch(Exception ignored){}
         }
         Path userQuota = Path.of(System.getProperty("user.home"), ".gemini", "antigravity-cli", "quota.json");
         if(Files.isRegularFile(userQuota)){
-            try{return snapshot(userQuota, "Antigravity 本機快照");}catch(Exception ignored){}
+            try{return snapshot(userQuota, "Antigravity 本機 statusline 快照");}catch(Exception ignored){}
         }
-        return map("source","Antigravity 官方 CLI","status","點擊「開啟官方額度查詢」輸入 /usage，或匯入快照","windows",List.of());
+        Path userStatus = Path.of(System.getProperty("user.home"), ".gemini", "antigravity-cli", "statusline.json");
+        if(Files.isRegularFile(userStatus)){
+            try{return snapshot(userStatus, "Antigravity 本機 statusline 快照");}catch(Exception ignored){}
+        }
+        return map("source","Antigravity 官方 CLI","status","點擊「開啟官方額度查詢」輸入 /usage，或連接 statusline 快照","windows",List.of());
     }
     static Map<String,Object> gemini(Map<String,Object> config, Path data){
         Path file = data.resolve("gemini-quota.json");
