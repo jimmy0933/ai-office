@@ -56,7 +56,9 @@ final class Office implements AutoCloseable {
         try{Map<String,Object> codex;try{codex=Usage.codex(c);}catch(Exception e){codex=map("source","Codex 官方額度查詢","status","查詢失敗；請確認 CLI 版本與登入","windows",List.of(),"checkedAt",now());}
             Map<String,Object> claude;try{claude=Usage.snapshot(data.resolve("claude-quota.json"));}catch(Exception e){claude=map("status","Claude 快照無效","windows",List.of());}
             Map<String,Object> company;try{company=Usage.company(object(c.get("Company")));}catch(Exception e){company=map("source","公司額度端點","status","查詢失敗；請確認 URL 與回覆格式","windows",List.of());}
-            synchronized(this){if(stringify(c).equals(stringify(config()))){quotas.put("Company",company);quotas.put("Codex",codex);quotas.put("Claude",claude);quotaChecked=System.currentTimeMillis();}}return map("ok",true);
+            Map<String,Object> antigravity=Usage.antigravity(c);
+            Map<String,Object> gemini=Usage.gemini(c);
+            synchronized(this){if(stringify(c).equals(stringify(config()))){quotas.put("Company",company);quotas.put("Codex",codex);quotas.put("Claude",claude);quotas.put("Antigravity",antigravity);quotas.put("Gemini",gemini);quotaChecked=System.currentTimeMillis();}}return map("ok",true);
         }finally{synchronized(this){quotaBusy=false;}}
     }
     synchronized void success(String p,Agents.Answer answer){var conn=object(state.get("connections"));var v=conn.get(p)instanceof Map?object(conn.get(p)):map();v.putAll(map("installed",true,"authenticated",true,"model",answer.model(),"lastSuccess",now()));v.remove("error");conn.put(p,v);}
