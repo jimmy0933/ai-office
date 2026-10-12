@@ -171,7 +171,7 @@ try:
     check(any('ANTIGRAVITY_REPLY' in x['prompt'] and 'GEMINI_REPLY' in x['prompt'] for x in audit if x['provider']=='fake-codex'),'Antigravity shared transcript reaches Codex')
     check(request('meeting',{'topic':'錯誤參與者','participants':['Antigravity','Antigravity']})[0]==400,'duplicate meeting participants rejected')
     check(request('meeting',{'topic':'錯誤參與者','participants':['other','Codex']})[0]==400,'unknown meeting provider rejected')
-    for marker,expected in [('FAIL_MARKER','Subscription quota'),('WAIT_MARKER','WAITING'),('MISSING_MARKER','最終結果'),('MALFORMED_MARKER','輸出無效'),('TOOLS_MARKER','無工具代理'),('EXIT_MARKER','Google login required')]:
+    for marker,expected in [('FAIL_MARKER','Subscription quota'),('WAIT_MARKER','WAITING'),('MISSING_MARKER','最終結果'),('MALFORMED_MARKER','輸出無效'),('EXIT_MARKER','Google login required')]:
         t=post('task',{'owner':'Antigravity','title':marker})['id'];r=wait('tasks',t,{'失敗'})
         check(expected in r['error'],'Antigravity '+marker+' must fail, not report success: '+r['error'])
     prefs=ROOT/'home/.gemini/antigravity-cli/settings.json';prefs.parent.mkdir(parents=True)

@@ -12,7 +12,33 @@ import java.util.List;
 import java.util.concurrent.*;
 import static tw.jimmy.aioffice.Json.*;
 
+final class Log {
+    private static Path logPath;
+    static synchronized void init(Path dir){
+        try{logPath=dir.resolve("ai-office.log").toAbsolutePath();}catch(Exception ignored){}
+    }
+    static synchronized void info(String msg){write("INFO",msg,null);}
+    static synchronized void error(String msg,Throwable t){write("ERROR",msg,t);}
+    private static void write(String level,String msg,Throwable t){
+        String time=java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        String line="["+time+"] ["+level+"] "+msg+(t==null?"":" - "+Agents.clean(t));
+        System.out.println(line);
+        if(logPath!=null){
+            try{Files.writeString(logPath,line+System.lineSeparator(),StandardCharsets.UTF_8,StandardOpenOption.CREATE,StandardOpenOption.APPEND);}catch(Exception ignored){}
+        }
+    }
+}
+
 public final class Main {
+    static Path jarDir(){
+        try{
+            URI uri=Main.class.getProtectionDomain().getCodeSource().getLocation().toURI();
+            Path p=Path.of(uri).toAbsolutePath();
+            return Files.isDirectory(p)?p:p.getParent();
+        }catch(Exception e){
+            return Path.of(".").toAbsolutePath().normalize();
+        }
+    }
     final String token=UUID.randomUUID().toString();final Office office;final HttpServer server;final String origin;final ExecutorService http=Executors.newFixedThreadPool(8);
     Main(Path data,int port)throws Exception{server=HttpServer.create(new InetSocketAddress(InetAddress.getByName("127.0.0.1"),port),32);try{office=new Office(data);}catch(Exception e){server.stop(0);http.shutdownNow();throw e;}origin="http://127.0.0.1:"+server.getAddress().getPort();server.createContext("/",this::handle);server.setExecutor(http);}
     private void handle(HttpExchange x)throws IOException {
@@ -63,9 +89,11 @@ public final class Main {
             System.out.println("AI Office quota synced");return;
         }
 
+        Log.init(jarDir());
         Path data=Path.of(System.getProperty("user.home"),".ai-office-java");int port=4317;boolean browser=true;
         for(int i=0;i<args.length;i++)switch(args[i]){case "--data"->data=Path.of(args[++i]);case "--port"->port=Integer.parseInt(args[++i]);case "--no-browser"->browser=false;case "--help"->{System.out.println("AI Office Java: java -jar AI-Office-Java.jar [--port 4317] [--data PATH] [--no-browser]");return;}default->throw new IllegalArgumentException("未知參數："+args[i]);}
         if(port<0||port>65535)throw new IllegalArgumentException("埠號無效");Main app=new Main(data,port);Runtime.getRuntime().addShutdownHook(new Thread(app::close));app.server.start();
+        Log.info("AI Office Java 0.7.2 started in JAR dir: "+jarDir()+", data dir: "+data.toAbsolutePath()+", server: "+app.origin);
         System.out.println("AI Office Java 0.7.2\n辦公室："+app.origin+"\n紀錄："+data.toAbsolutePath()+"\n僅限本機 · Ctrl+C 停止");
         if(browser){app.tray();browse(app.origin);}
     }catch(Exception e){String message="無法啟動："+Agents.clean(e)+"\n若埠已被使用，請先結束已開啟的辦公室，或加上 --port 4318。";System.err.println(message);if(!List.of(args).contains("--no-browser")&&!GraphicsEnvironment.isHeadless())javax.swing.JOptionPane.showMessageDialog(null,message,"AI Office",javax.swing.JOptionPane.ERROR_MESSAGE);System.exit(1);}}
