@@ -45,32 +45,45 @@ final class Usage {
         try{var response=future.get(15,TimeUnit.SECONDS);stream=response.body();InputStream body=stream;var bytes=reader.submit(()->body.readNBytes(65537)).get(15,TimeUnit.SECONDS);if(response.statusCode()!=200)throw new IOException("公司額度 HTTP "+response.statusCode());if(bytes.length>65536)throw new IOException("公司額度回覆過大");var m=object(parse(new String(bytes,StandardCharsets.UTF_8)));List<Object> windows=new ArrayList<>();for(Object v:array(m.get("windows"))){var w=object(v);if(!(w.get("usedPercent") instanceof Number))throw new IOException("公司額度欄位無效");windows.add(map("name",str(w,"name"),"usedPercent",w.get("usedPercent"),"resetsAt",w.get("resetsAt")));}return map("source","公司設定的額度端點","status",windows.isEmpty()?"未提供額度視窗":"已取得","windows",windows,"updatedAt",Office.now());}
         finally{future.cancel(true);if(stream!=null)try{stream.close();}catch(Exception ignored){}reader.shutdownNow();}
     }
-    static Map<String,Object> antigravity(Map<String,Object> config){
-        try{
-            var command=new ArrayList<>(Agents.resolve(str(object(config.get("Antigravity")),"command"),"Antigravity"));
-            command.addAll(List.of("usage","--output-format","json"));
-            Agents.Control ctrl=new Agents.Control();
-            String out=Agents.execute(command,"",null,Map.of(),ctrl,10000,l->{});
-            if(!out.isBlank()&&out.trim().startsWith("{")){
-                var obj=object(parse(out.strip()));
-                List<Object> windows=new ArrayList<>();
-                if(obj.get("windows")instanceof List){
-                    for(Object item:array(obj.get("windows"))){
-                        var w=object(item);
-                        if(w.get("usedPercent")instanceof Number)windows.add(map("name",str(w,"name"),"usedPercent",w.get("usedPercent"),"resetsAt",w.get("resetsAt")));
-                    }
-                }
-                if(!windows.isEmpty())return map("source","Antigravity 官方 CLI","updatedAt",Office.now(),"windows",windows,"status","已取得");
+    static Map<String,Object> antigravity(Map<String,Object> config, Path data){
+        Path file = data.resolve("antigravity-quota.json");
+        if(Files.isRegularFile(file)){
+            try{return snapshot(file, "Antigravity 官方快照");}catch(Exception ignored){}
+        }
+        Path userQuota = Path.of(System.getProperty("user.home"), ".gemini", "antigravity-cli", "quota.json");
+        if(Files.isRegularFile(userQuota)){
+            try{return snapshot(userQuota, "Antigravity 本機快照");}catch(Exception ignored){}
+        }
+        return map("source","Antigravity 官方 CLI","status","點擊「開啟官方額度查詢」輸入 /usage，或匯入快照","windows",List.of());
+    }
+    static Map<String,Object> gemini(Map<String,Object> config, Path data){
+        Path file = data.resolve("gemini-quota.json");
+        if(Files.isRegularFile(file)){
+            try{return snapshot(file, "Gemini 官方快照");}catch(Exception ignored){}
+        }
+        return map("source","Gemini 官方 CLI","status","點擊「開啟官方額度查詢」輸入 /stats model，或匯入快照","windows",List.of());
+    }
+    static Map<String,Object> snapshot(Path file, String source)throws Exception{
+        if(!Files.isRegularFile(file)||Files.isSymbolicLink(file))return map("source",source,"status","尚未連接快照","windows",List.of());
+        if(Files.size(file)>65536)throw new IOException("快照過大");
+        var m=object(parse(Files.readString(file)));
+        List<Object> windows=new ArrayList<>();
+        var limits=m.get("rate_limits") instanceof Map?object(m.get("rate_limits")):m.get("windows") instanceof List?m:map();
+        if(m.get("windows") instanceof List){
+            for(Object v:array(m.get("windows"))){
+                var w=object(v);
+                if(w.get("usedPercent") instanceof Number)windows.add(map("name",str(w,"name"),"usedPercent",w.get("usedPercent"),"resetsAt",w.get("resetsAt")));
             }
-        }catch(Exception ignored){}
-        return map("source","Antigravity 官方 CLI","status","請點擊下方按鈕開啟官方 CLI，並輸入 /usage 查看","windows",List.of());
-    }
-    static Map<String,Object> gemini(Map<String,Object> config){
-        return map("source","Gemini 官方 CLI","status","請點擊下方按鈕開啟官方 CLI，並輸入 /stats model 查看","windows",List.of());
-    }
-    static Map<String,Object> snapshot(Path file)throws Exception{
-        if(!Files.isRegularFile(file)||Files.isSymbolicLink(file))return map("source","Claude 官方 statusLine 快照","status","尚未連接快照","windows",List.of());
-        if(Files.size(file)>65536)throw new IOException("Claude 快照過大");var m=object(parse(Files.readString(file)));List<Object> windows=new ArrayList<>();var limits=object(m.getOrDefault("rate_limits",map()));for(String key:List.of("five_hour","seven_day")){if(limits.get(key)instanceof Map){var w=object(limits.get(key));if(w.get("used_percentage")instanceof Number)windows.add(map("name",key.equals("five_hour")?"5 小時":"7 天","usedPercent",w.get("used_percentage"),"resetsAt",w.get("resets_at")));}}
-        return map("source","Claude 官方 statusLine 快照","status",windows.isEmpty()?"官方未提供額度欄位":"已取得快照","updatedAt",Files.getLastModifiedTime(file).toInstant().toString(),"windows",windows);
+        }else{
+            for(String key:List.of("five_hour","seven_day","primary","secondary","daily")){
+                if(limits.get(key)instanceof Map){
+                    var w=object(limits.get(key));
+                    Object pct=w.get("used_percentage")!=null?w.get("used_percentage"):w.get("usedPercent");
+                    Object reset=w.get("resets_at")!=null?w.get("resets_at"):w.get("resetsAt");
+                    if(pct instanceof Number)windows.add(map("name",key.equals("five_hour")?"5 小時":key.equals("seven_day")?"7 天":key,"usedPercent",pct,"resetsAt",reset));
+                }
+            }
+        }
+        return map("source",source,"status",windows.isEmpty()?"未提供額度欄位":"已取得快照","updatedAt",Files.getLastModifiedTime(file).toInstant().toString(),"windows",windows);
     }
 }

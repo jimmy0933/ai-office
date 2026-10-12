@@ -54,10 +54,10 @@ final class Office implements AutoCloseable {
     Object refreshQuota()throws Exception {
         Map<String,Object> c; synchronized(this){if(quotaBusy||System.currentTimeMillis()-quotaChecked<60000)return map("ok",true);quotaBusy=true;c=config();}
         try{Map<String,Object> codex;try{codex=Usage.codex(c);}catch(Exception e){codex=map("source","Codex 官方額度查詢","status","查詢失敗；請確認 CLI 版本與登入","windows",List.of(),"checkedAt",now());}
-            Map<String,Object> claude;try{claude=Usage.snapshot(data.resolve("claude-quota.json"));}catch(Exception e){claude=map("status","Claude 快照無效","windows",List.of());}
+            Map<String,Object> claude;try{claude=Usage.snapshot(data.resolve("claude-quota.json"), "Claude 官方 statusLine 快照");}catch(Exception e){claude=map("status","Claude 快照無效","windows",List.of());}
             Map<String,Object> company;try{company=Usage.company(object(c.get("Company")));}catch(Exception e){company=map("source","公司額度端點","status","查詢失敗；請確認 URL 與回覆格式","windows",List.of());}
-            Map<String,Object> antigravity=Usage.antigravity(c);
-            Map<String,Object> gemini=Usage.gemini(c);
+            Map<String,Object> antigravity=Usage.antigravity(c, data);
+            Map<String,Object> gemini=Usage.gemini(c, data);
             synchronized(this){if(stringify(c).equals(stringify(config()))){quotas.put("Company",company);quotas.put("Codex",codex);quotas.put("Claude",claude);quotas.put("Antigravity",antigravity);quotas.put("Gemini",gemini);quotaChecked=System.currentTimeMillis();}}return map("ok",true);
         }finally{synchronized(this){quotaBusy=false;}}
     }
