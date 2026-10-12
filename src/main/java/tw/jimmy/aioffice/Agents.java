@@ -146,8 +146,20 @@ final class Agents {
                 if(!model.isBlank())command.addAll(List.of("--model",model));
                 prompt=stringify(map("event","user","message",map("content",prompt)))+"\n";
             }else{
-                Path system=session.resolve("gemini-system.json");Files.writeString(system,stringify(map("tools",map("core",List.of(),"exclude",List.of("run_shell_command","write_file","replace"),"discoveryCommand","","callCommand",""),"admin",map("mcp",map("enabled",false),"extensions",map("enabled",false)),"mcpServers",map(),"hooksConfig",map("enabled",false),"skills",map("enabled",false),"advanced",map("ignoreLocalEnv",true),"privacy",map("usageStatisticsEnabled",false),"general",map("enableAutoUpdate",false))));
-                var restricted=object(parse(Files.readString(system)));restricted.put("security",map("auth",map("selectedType","oauth-personal","enforcedType","oauth-personal")));Files.writeString(system,stringify(restricted));
+                Path system=session.resolve("gemini-system.json");
+                Files.createDirectories(system.getParent());
+                Map<String,Object> sysConfig=map(
+                    "tools",map("core",List.of(),"exclude",List.of("run_shell_command","write_file","replace"),"discoveryCommand","","callCommand",""),
+                    "security",map("auth",map("selectedType","oauth-personal","enforcedType","oauth-personal")),
+                    "admin",map("mcp",map("enabled",false),"extensions",map("enabled",false)),
+                    "mcpServers",map(),
+                    "hooksConfig",map("enabled",false),
+                    "skills",map("enabled",false),
+                    "advanced",map("ignoreLocalEnv",true),
+                    "privacy",map("usageStatisticsEnabled",false),
+                    "general",map("enableAutoUpdate",false)
+                );
+                ProjectFiles.atomicWrite(system,stringify(sysConfig));
                 env.put("GEMINI_CLI_SYSTEM_SETTINGS_PATH",system.toAbsolutePath().toString());command.addAll(List.of("--prompt","請回答標準輸入提供的任務，不要使用工具。","--output-format","json","--approval-mode","default","--extensions","none"));
                 if(!model.isBlank())command.addAll(List.of("--model",model));
             }
