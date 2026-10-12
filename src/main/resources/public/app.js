@@ -8,7 +8,7 @@ const bind=(sel,event,fn)=>$(sel).addEventListener(event,e=>{if(event==='submit'
 function toast(text,bad=false){clearTimeout(toastTimer);$('#toast').textContent=text;$('#toast').className=bad?'bad':'';toastTimer=setTimeout(()=>$('#toast').classList.add('hidden'),6000);}
 async function api(path,body){const r=await fetch('/api/'+path,{method:body===undefined?'GET':'POST',headers:{'X-Office-Token':token,...(body===undefined?{}:{'Content-Type':'application/json'})},...(body===undefined?{}:{body:JSON.stringify(body)})});const data=await r.json();if(!r.ok)throw new Error(data.error||'請求失敗');return data;}
 function badge(status){return `<span class="badge ${busy.has(status)?'busy':status==='待核准'?'wait':['失敗','已中斷','已停止','已拒絕'].includes(status)?'fail':''}">${escape(status)}</span>`;}
-function jump(p){window.scrollTo(0,0);page=p;document.querySelectorAll('.page').forEach(el=>el.classList.toggle('hidden',el.id!=='page-'+p));document.querySelectorAll('nav button').forEach(el=>el.classList.toggle('active',el.dataset.page===p));$('#page-title').textContent=({office:'你的 AI 辦公室。',tasks:'把事情交給組長。',meetings:'好的想法，一起討論。',files:'從你的專案出發。',settings:'準備好，開始工作。',usage:'額度與用量。'})[p];if(p==='usage')refreshQuota();if(p==='files')loadFiles().catch(e=>toast(e.message,true));}
+function jump(p){window.scrollTo(0,0);page=p;document.querySelectorAll('.page').forEach(el=>el.classList.toggle('hidden',el.id!=='page-'+p));document.querySelectorAll('nav button').forEach(el=>el.classList.toggle('active',el.dataset.page===p));$('#page-title').textContent=({office:'你的 AI 辦公室。',tasks:'把事情交給組長。',meetings:'好的想法，一起討論。','mr-review':'多 Agent 平行 Review 與交叉審查。',files:'從你的專案出發。',settings:'準備好，開始工作。',usage:'額度與用量。'})[p];if(p==='usage')refreshQuota();if(p==='files')loadFiles().catch(e=>toast(e.message,true));}
 document.addEventListener('click',e=>{const b=e.target.closest('[data-page],[data-jump]');if(b)jump(b.dataset.page||b.dataset.jump);});
 bind('#new-task','click',()=>{jump('tasks');$('#task-form [name="title"]').focus();});bind('#go-meeting','click',()=>jump('meetings'));
 function agentStatus(p){const task=state.tasks.find(t=>t.owner===p&&busy.has(t.status));const m=state.meetings.find(m=>busy.has(m.status)&&m.speaker===p);if(m)return {status:m.status,label:'會議：'+m.topic};if(task)return {status:task.status,label:task.title};const c=state.connections[p];return {status:c?.installed?'待命':'尚未檢查',label:c?.authenticated?'最近呼叫成功':c?.installed?(p==='Company'?'已設定網址，請測試連線':'已找到 CLI，尚未確認登入'):'先到連線設定檢查'};}
@@ -20,7 +20,7 @@ function render(){if(!state)return;const tasks=state.tasks,meetings=state.meetin
   $('#events').innerHTML=state.events.slice(-20).reverse().map(e=>`<div class="event-row"><span>${time(e.at)}</span><b>${escape(e.who)}</b><span>${escape(e.text)}</span></div>`).join('')||'<div class="empty">實際工作事件會出現在這裡。</div>';
   if(!selectedTask&&tasks[0])selectedTask=tasks[0].id;if(!selectedMeeting&&meetings[0])selectedMeeting=meetings[0].id;
   $('#task-list').innerHTML=tasks.map(t=>`<button class="select-card ${t.id===selectedTask?'selected':''}" data-task="${t.id}"><strong>${escape(t.title)}</strong>${badge(t.status)} <small>${escape(t.owner)}</small></button>`).join('');renderTask();
-  $('#meeting-list').innerHTML=meetings.map(m=>`<button class="select-card ${m.id===selectedMeeting?'selected':''}" data-meeting="${m.id}"><strong>${escape(m.topic)}</strong>${badge(m.status)}</button>`).join('');renderMeeting();
+  $('#meeting-list').innerHTML=meetings.map(m=>`<button class="select-card ${m.id===selectedMeeting?'selected':''}" data-meeting="${m.id}"><strong>${escape(m.topic)}</strong>${badge(m.status)}</button>`).join('');renderMeeting();renderMrReview();
   if(!configLoaded){const f=$('#config-form');f.elements.workspace.value=state.config.workspace;f.elements.sessionDir.value=state.config.sessionDir||'';for(const p of ['Codex','Antigravity','Gemini','Claude']){f.elements[p.toLowerCase()+'Command'].value=state.config[p].command;f.elements[p.toLowerCase()+'Model'].value=state.config[p].model;}const co=state.config.Company;f.elements.companyBaseUrl.value=co.baseUrl;f.elements.companyModel.value=co.model;f.elements.companyQuotaUrl.value=co.quotaUrl||'';f.elements.companyTimeout.value=co.timeoutSeconds;f.elements.companyApiKey.placeholder=co.hasApiKey?'已保存；留白保留原 Key':'無需認證可留白';configLoaded=true;loadOptions();}
   renderUsage();drawRoom();
 }
@@ -214,3 +214,47 @@ document.addEventListener('paste', e => {
     }
   }
 });
+
+let selectedMrReview = '';
+function renderMrReview(){
+  if(!state||!state.mrReviews)return;
+  const list = state.mrReviews;
+  if(!selectedMrReview && list[0]) selectedMrReview = list[0].id;
+  const listEl = $('#mr-review-list');
+  if(listEl) listEl.innerHTML = list.map(r=>`<button class="select-card ${r.id===selectedMrReview?'selected':''}" data-mr-review="${r.id}"><strong>${escape(r.mrUrl)}</strong>${badge(r.status)}<br><small class="muted">SHA: ${escape(r.baseSha)}..${escape(r.headSha)}</small></button>`).join('') || '<div class="empty">尚無 MR Review 紀錄</div>';
+  const cur = list.find(r=>r.id===selectedMrReview);
+  const detailEl = $('#mr-review-detail');
+  if(!detailEl) return;
+  if(!cur){ detailEl.innerHTML = ''; return; }
+  const findings = cur.parallelFindings || {};
+  const cross = cur.crossReviews || {};
+  let parallelHtml = '<h3>第一輪：平行獨立 Review</h3>';
+  for(const k of Object.keys(findings)){
+    parallelHtml += `<div class="message"><div class="message-head"><strong>${escape(k)}</strong></div><pre>${escape(findings[k])}</pre></div>`;
+  }
+  let crossHtml = '<h3>第二輪：交叉審查意見</h3>';
+  for(const k of Object.keys(cross)){
+    crossHtml += `<div class="message"><div class="message-head"><strong>${escape(k)} 交叉意見</strong></div><pre>${escape(cross[k])}</pre></div>`;
+  }
+  detailEl.innerHTML = `<div class="detail-title"><h2>MR: ${escape(cur.mrUrl)}</h2>${badge(cur.status)}</div><p class="muted small">Base SHA: ${escape(cur.baseSha)} | Head SHA: ${escape(cur.headSha)} | Agents: ${escape((cur.participants||[]).join(', '))}</p>${cur.summaryReport?`<h3>最終整合報告</h3><pre>${escape(cur.summaryReport)}</pre>`:''}${parallelHtml}${crossHtml}`;
+}
+document.addEventListener('click', e=>{
+  const b = e.target.closest('[data-mr-review]');
+  if(b){ selectedMrReview = b.dataset.mrReview; renderMrReview(); }
+});
+const mrForm = $('#mr-review-form');
+if(mrForm){
+  bind('#mr-review-form','submit',async e=>{
+    e.preventDefault();
+    const form = e.target, b = form.querySelector('[type="submit"]');
+    b.disabled = true;
+    try{
+      const data = Object.fromEntries(new FormData(form));
+      data.participants = data.participants.split(',').map(s=>s.trim()).filter(Boolean);
+      const r = await api('mr-review', data);
+      selectedMrReview = r.id;
+      toast('已發起多 Agent 平行 MR Review');
+      await refresh();
+    }finally{ b.disabled = false; }
+  });
+}

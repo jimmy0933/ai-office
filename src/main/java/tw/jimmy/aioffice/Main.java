@@ -68,6 +68,7 @@ public final class Main {
                 case "/api/config"->office.updateConfig(body);case "/api/check"->office.check();case "/api/task"->office.addTask(body);
                 case "/api/retry"->office.retry(str(body,"id"));case "/api/task-followup"->office.followupTask(str(body,"id"),str(body,"text"));case "/api/task-delete"->office.deleteTask(str(body,"id"));case "/api/stop"->office.stop(str(body,"id"));case "/api/approval"->office.decide(str(body,"id"),str(body,"decision"));
                 case "/api/meeting"->office.addMeeting(body);case "/api/interject"->office.interject(str(body,"id"),str(body,"text"));
+                case "/api/mr-review"->office.addMrReview(body);
                 default->throw new IllegalArgumentException("找不到此 API");};respond(x,200,result);
         }catch(IllegalArgumentException e){respond(x,400,map("error",Agents.clean(e)));}catch(Exception e){respond(x,500,map("error",Agents.clean(e)));}finally{x.close();}
     }
