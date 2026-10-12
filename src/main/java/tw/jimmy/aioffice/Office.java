@@ -36,7 +36,42 @@ final class Office implements AutoCloseable {
     synchronized Object updateConfig(Map<String,Object> body)throws Exception {
         if(!active.isEmpty())throw new IllegalArgumentException("請先停止執行中的任務與會議");String workspace=str(body,"workspace").strip();if(!workspace.isBlank())workspace=ProjectFiles.root(workspace).toString();Map<String,Object> c=map("workspace",workspace);
         for(String p:Agents.PROVIDERS){if(p.equals("Company")){var v=object(body.getOrDefault(p,object(state.get("config")).get(p)));var co=map("baseUrl",str(v,"baseUrl").strip(),"model",str(v,"model").strip(),"timeoutSeconds",v.getOrDefault("timeoutSeconds",120),"apiKey",Boolean.TRUE.equals(v.get("clearApiKey"))?"":str(v,"apiKey").isBlank()?str(object(object(state.get("config")).get(p)),"apiKey"):str(v,"apiKey").strip());co.put("quotaUrl",str(v,"quotaUrl").strip());Company.validate(co,false);Usage.validateCompanyUrl(co);c.put(p,co);continue;}var v=object(body.getOrDefault(p,object(state.get("config")).get(p)));String command=required(v,"command",1000),model=str(v,"model").strip();if(model.length()>100||model.indexOf('\n')>=0)throw new IllegalArgumentException("模型名稱無效");c.put(p,map("command",command,"model",model));}
+        String sessionDir=str(body,"sessionDir").strip();
+        if(!sessionDir.isBlank()){
+            String s=sessionDir;
+            if((s.startsWith("\"")&&s.endsWith("\""))||(s.startsWith("'")&&s.endsWith("'"))){s=s.substring(1,s.length()-1).strip();}
+            if(s.equals("~")||s.startsWith("~/")||s.startsWith("~\\")||s.startsWith("~"+java.io.File.separator)){s=System.getProperty("user.home")+s.substring(1);}
+            Path target=Path.of(s).toAbsolutePath().normalize();
+            try{
+                Files.createDirectories(target);
+                if(!Files.isWritable(target))throw new IllegalArgumentException("Session 目錄無寫入權限");
+            }catch(Exception e){throw new IllegalArgumentException("Session 目錄無效或無權限："+Agents.clean(e));}
+            Path oldDir=data.resolve("sessions");
+            if(Files.exists(oldDir)&&!oldDir.equals(target)){
+                try(var stream=Files.walk(oldDir)){
+                    stream.forEach(source->{
+                        try{
+                            Path dest=target.resolve(oldDir.relativize(source));
+                            if(Files.isDirectory(source)){Files.createDirectories(dest);}
+                            else if(Files.isRegularFile(source)&&!Files.exists(dest)){Files.copy(source,dest,StandardCopyOption.REPLACE_EXISTING);}
+                        }catch(Exception ignored){}
+                    });
+                }catch(Exception ignored){}
+            }
+        }
+        c.put("sessionDir",sessionDir);
         boolean changed=!stringify(c).equals(stringify(state.get("config")));state.put("config",c);if(changed){state.put("connections",map());quotas.clear();quotaChecked=0;}event("系統","連線設定已更新");save();return object(view()).get("config");
+    }
+    Path sessionPath(String id)throws Exception{
+        String s=str(config(),"sessionDir").strip();
+        Path dir;
+        if(s.isBlank()){dir=data.resolve("sessions");}
+        else{
+            if((s.startsWith("\"")&&s.endsWith("\""))||(s.startsWith("'")&&s.endsWith("'"))){s=s.substring(1,s.length()-1).strip();}
+            if(s.equals("~")||s.startsWith("~/")||s.startsWith("~\\")||s.startsWith("~"+java.io.File.separator)){s=System.getProperty("user.home")+s.substring(1);}
+            dir=Path.of(s).toAbsolutePath().normalize();
+        }
+        Files.createDirectories(dir);return dir.resolve(id);
     }
     Object check()throws Exception {var c=config();var result=agents.doctor(c);synchronized(this){if(stringify(c).equals(stringify(state.get("config")))){state.put("connections",result);event("系統","CLI 檢查完成；版本檢查不等於已登入");save();}}return result;}
     Object discoverOptions()throws Exception {
@@ -93,7 +128,7 @@ final class Office implements AutoCloseable {
     private void submitTask(Map<String,Object> t,Map<String,Object> c){String taskId=str(t,"id"),p=str(t,"owner");launch(taskId,ctrl->{try{
         ctrl.check();String prompt=BASE+"\n任務："+str(t,"title")+"\n說明："+str(t,"description")+context(array(t.get("files")));
         if(str(t,"mode").equals("edit"))prompt+="\n只輸出 JSON，不要加 markdown：{\"summary\":\"修改理由\",\"edits\":[{\"path\":\"附加檔案相對路徑\",\"content\":\"修改後完整內容\"}]}。只能修改附加的現有檔案。若無需修改，edits 為空陣列。";
-        var r=agents.run(p,prompt,c,data.resolve("sessions").resolve(id()),ctrl,text->{synchronized(this){if(text.startsWith("執行中"))t.put("status","執行中");t.put("lastEvent",text);event(p,text);}});
+        var r=agents.run(p,prompt,c,sessionPath(id()),ctrl,text->{synchronized(this){if(text.startsWith("執行中"))t.put("status","執行中");t.put("lastEvent",text);event(p,text);}});
         ctrl.check();List<Object> edits=str(t,"mode").equals("edit")?ProjectFiles.proposal(r.text(),array(t.get("files"))):List.of();synchronized(this){ctrl.check();t.putAll(map("result",r.text(),"usage",r.usage(),"model",r.model(),"edits",edits,"status",edits.isEmpty()?"完成":"待核准","finishedAt",now()));success(p,r);event(p,"任務"+str(t,"status")+"："+str(t,"title"));save();}
     }catch(Exception e){failed(t,ctrl,e);}});}
     synchronized Object decide(String taskId,String decision)throws Exception {
@@ -109,11 +144,11 @@ final class Office implements AutoCloseable {
             for(int round=1;round<=rounds;round++)for(String p:participants){
                 ctrl.check();synchronized(this){meeting.put("speaker",p);meeting.put("round",round);saved();}String prompt;
                 synchronized(this){prompt=meetingPrompt(meeting,p,false);}
-                var r=agents.run(p,prompt,c,data.resolve("sessions").resolve(id()),ctrl,text->{synchronized(this){event(p,"會議 · "+text);}});
+                var r=agents.run(p,prompt,c,sessionPath(id()),ctrl,text->{synchronized(this){event(p,"會議 · "+text);}});
                 synchronized(this){ctrl.check();array(meeting.get("messages")).add(map("who",p,"text",r.text(),"at",now(),"round",round,"model",r.model(),"usage",r.usage()));success(p,r);save();}
             }
             ctrl.check();status(meeting,"整理中");String prompt;synchronized(this){meeting.put("speaker",summarizer);prompt=meetingPrompt(meeting,summarizer,true);}
-            var r=agents.run(summarizer,prompt,c,data.resolve("sessions").resolve(id()),ctrl,text->{synchronized(this){event(summarizer,"整理會議 · "+text);}});
+            var r=agents.run(summarizer,prompt,c,sessionPath(id()),ctrl,text->{synchronized(this){event(summarizer,"整理會議 · "+text);}});
             synchronized(this){ctrl.check();meeting.putAll(map("summaryUsage",r.usage(),"summaryModel",r.model(),"summary",r.text(),"status","已結束","speaker","","finishedAt",now()));success(summarizer,r);event("會議室","會議已完成");save();}
         }catch(Exception e){failed(meeting,ctrl,e);}});return map("id",meeting.get("id"));
     }

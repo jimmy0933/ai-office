@@ -256,6 +256,19 @@ try:
     check(view['usage']['Claude']['calls']>0 and view['usage']['Claude']['reportedCalls']==0,'missing token usage not zero')
     check(view['usage']['Codex']['calls']==sum(1 for t in view['tasks'] if t['owner']=='Codex' and t.get('result'))+sum(1 for m in view['meetings'] for msg in m['messages'] if msg['who']=='Codex')+sum(1 for m in view['meetings'] if m.get('summary') and m['summarizer']=='Codex'),'meeting summaries included')
     check(view['connections']['Company']['authenticated'] is True,'company test marks connection successful')
+    custom_session_dir = ROOT / 'custom session path'
+    config = state()['config']
+    config['sessionDir'] = str(custom_session_dir)
+    config['Codex']['command'] = str(ROOT / 'fake-codex')
+    post('config', config)
+    check(state()['config']['sessionDir'] == str(custom_session_dir), 'custom session path with spaces persisted')
+    tid = post('task', {'owner': 'Codex', 'title': 'Custom Session Task'})['id']
+    wait('tasks', tid, {'完成'})
+    check(custom_session_dir.exists(), 'custom session directory created and used')
+    config['Codex']['command'] = str(rpc)
+    post('config', config)
+    post('company-test', {})
+    view = state()
     stable=state()['config'];post('config',stable);check(state()['connections']==view['connections'],'unchanged config preserves connection status')
     silent=ROOT/'silent-codex';silent.write_text('#!'+sys.executable+'\nimport time\ntime.sleep(120)\n');silent.chmod(0o755)
     stalled=state()['config'];stalled['Codex']['command']=str(silent);post('config',stalled);started=time.monotonic();post('quota-refresh',{});check(time.monotonic()-started<20,'unresponsive quota process times out without deadlock')
