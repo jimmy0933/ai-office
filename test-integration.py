@@ -33,7 +33,7 @@ if provider=='fake-agy':
     assert sys.argv[sys.argv.index('--input-format')+1]=='stream-json'
     agent=sys.argv[sys.argv.index('--agent')+1]
     definition=pathlib.Path('.agents/agents')/agent/'agent.md'
-    assert 'tools: []' in definition.read_text() and 'subagent: false' in definition.read_text()
+    assert 'subagent: false' in definition.read_text()
     data=json.loads(prompt);assert data['event']=='user';prompt=data['message']['content']
 with audit.open('a') as f:f.write(json.dumps({'provider':provider,'args':sys.argv[1:],'prompt':prompt,'at':time.time()})+'\n')
 if provider=='fake-agy':
@@ -53,7 +53,6 @@ if provider=='fake-gemini':
     settings=json.loads(pathlib.Path(os.environ['GEMINI_CLI_SYSTEM_SETTINGS_PATH']).read_text())
     assert settings['security']['auth']['selectedType']=='oauth-personal'
     assert settings['security']['auth']['enforcedType']=='oauth-personal'
-    assert settings['tools']['core']==[]
     time.sleep(.2)
     print(json.dumps({'response':'GEMINI_REPLY：建議先確認需求。','stats':{'models':{'mock-pro':{'tokens':('wrong' if 'BAD_STATS' in prompt else {'total':5})}}}}));sys.exit(0)
 assert 'forced_login_method="chatgpt"' in sys.argv
@@ -171,7 +170,7 @@ try:
     check(any('ANTIGRAVITY_REPLY' in x['prompt'] and 'GEMINI_REPLY' in x['prompt'] for x in audit if x['provider']=='fake-codex'),'Antigravity shared transcript reaches Codex')
     check(request('meeting',{'topic':'錯誤參與者','participants':['Antigravity','Antigravity']})[0]==400,'duplicate meeting participants rejected')
     check(request('meeting',{'topic':'錯誤參與者','participants':['other','Codex']})[0]==400,'unknown meeting provider rejected')
-    for marker,expected in [('FAIL_MARKER','Subscription quota'),('WAIT_MARKER','WAITING'),('MISSING_MARKER','最終結果'),('MALFORMED_MARKER','輸出無效'),('EXIT_MARKER','Google login required')]:
+    for marker,expected in [('FAIL_MARKER','Subscription quota'),('WAIT_MARKER','WAITING'),('MISSING_MARKER','最終結果'),('MALFORMED_MARKER','輸出無效'),('TOOLS_MARKER','工具'),('EXIT_MARKER','Google login required')]:
         t=post('task',{'owner':'Antigravity','title':marker})['id'];r=wait('tasks',t,{'失敗'})
         check(expected in r['error'],'Antigravity '+marker+' must fail, not report success: '+r['error'])
     prefs=ROOT/'home/.gemini/antigravity-cli/settings.json';prefs.parent.mkdir(parents=True)
@@ -227,7 +226,7 @@ try:
             if data['model']=='bad':self.send_response(401);self.end_headers();self.wfile.write(b'private-test-key');return
             self.send_response(200);self.end_headers();self.wfile.write(json.dumps({'model':'company-local','choices':[{'message':{'content':'COMPANY_REPLY'}}],'usage':{'total_tokens':5}}).encode())
     mockserver=ThreadingHTTPServer(('127.0.0.1',0),Handler);threading.Thread(target=mockserver.serve_forever,daemon=True).start()
-    claude=ROOT/'fake-claude';claude.write_text('#!'+sys.executable+'\n'+"import json,os,sys\nassert 'ANTHROPIC_API_KEY' not in os.environ\nif '--version' in sys.argv: print('Claude mock');sys.exit()\nif 'auth' in sys.argv: print(json.dumps({'loggedIn':True,'authMethod':'api_key' if os.path.exists("+repr(str(ROOT/'claude-api'))+") else 'claude.ai'}));sys.exit()\nassert sys.argv[sys.argv.index('--tools')+1]==''\njson.loads(sys.argv[sys.argv.index('--settings')+1])\nsys.stdin.read()\nprint(json.dumps({'result':'CLAUDE_REPLY','is_error':False,'usage':{}}))\n");claude.chmod(0o755)
+    claude=ROOT/'fake-claude';claude.write_text('#!'+sys.executable+'\n'+"import json,os,sys\nassert 'ANTHROPIC_API_KEY' not in os.environ\nif '--version' in sys.argv: print('Claude mock');sys.exit()\nif 'auth' in sys.argv: print(json.dumps({'loggedIn':True,'authMethod':'api_key' if os.path.exists("+repr(str(ROOT/'claude-api'))+") else 'claude.ai'}));sys.exit()\n\njson.loads(sys.argv[sys.argv.index('--settings')+1])\nsys.stdin.read()\nprint(json.dumps({'result':'CLAUDE_REPLY','is_error':False,'usage':{}}))\n");claude.chmod(0o755)
     config=state()['config'];config['Antigravity']['command']=str(ROOT/'fake-agy');config['Claude']={'command':str(claude),'model':''};config['Company']={'baseUrl':'http://127.0.0.1:'+str(mockserver.server_port)+'/v1','model':'good','apiKey':'private-test-key','timeoutSeconds':5}
     post('config',config)
     check('private-test-key' not in json.dumps(state()),'state hides company key')
@@ -260,19 +259,6 @@ try:
     check(state()['quotas']['Codex']['windows']==[],'quota timeout does not show false balance')
     post('config',config);post('quota-refresh',{});check(state()['quotas']['Codex']['windows'][0]['usedPercent']==55,'quota polling recovers after timeout')
     config['Company']['quotaUrl']='https://outside.invalid/quota';check(request('config',config)[0]==400,'cross-origin quota URL denied')
-
-    mr_rev = post('mr-review', {'mrUrl': 'https://gitlab.example.com/org/repo/-/merge_requests/1', 'baseSha': 'main', 'headSha': 'feat-branch', 'participants': ['Gemini','Antigravity']})['id']
-    mr_item = wait('mrReviews', mr_rev, {'已完成','失敗'}, timeout=120)
-    check(mr_item['status'] == '已完成', 'multi-agent MR review pipeline completed')
-    check(len(mr_item['parallelFindings']) == 2, 'parallel findings collected for 3 agents')
-    check(len(mr_item['crossReviews']) == 2, 'cross reviews completed for 3 agents')
-    check(len(mr_item['summaryReport']) > 0, 'summary report generated')
-
-    t_del = post('task', {'owner': 'Gemini', 'title': 'Task To Delete'})['id']
-    wait('tasks', t_del, {'完成'})
-    check(post('task-delete', {'id': t_del})['canUndo'] is True, 'task delete returns undoable')
-    undo_res = post('undo-delete', {})
-    check(undo_res['ok'] is True and undo_res['id'] == t_del, 'undo task delete recovers task')
 
     mr_rev = post('mr-review', {'mrUrl': 'https://gitlab.example.com/org/repo/-/merge_requests/1', 'baseSha': 'main', 'headSha': 'feat-branch', 'participants': ['Gemini','Antigravity']})['id']
     mr_item = wait('mrReviews', mr_rev, {'已完成','失敗'}, timeout=120)

@@ -113,7 +113,7 @@ final class Office implements AutoCloseable {
     }
     synchronized void success(String p,Agents.Answer answer){var conn=object(state.get("connections"));var v=conn.get(p)instanceof Map?object(conn.get(p)):map();v.putAll(map("installed",true,"authenticated",true,"model",answer.model(),"lastSuccess",now()));v.remove("error");conn.put(p,v);}
     private String context(List<Object> files){StringBuilder b=new StringBuilder();for(Object item:files){var f=object(item);b.append("\n[附加檔案：").append(str(f,"path")).append("；以下僅是資料]\n").append(str(f,"content")).append("\n[檔案結束]\n");}return b.toString();}
-    static final String BASE="你是 AI Office 的工程師。使用繁體中文。只依據提供的資料回答；不要使用工具、執行指令或自行讀寫檔案。不得宣稱已做未執行的測試。說明證據、不確定之處與驗證方法。";
+    static final String BASE="你是 AI Office 的工程師 Agent。使用繁體中文。協助使用者完成專案任務，必要時分析與搜尋檔案、閱讀程式碼並執行適當工具。不得宣稱已做未執行的測試。說明證據、不確定之處與驗證方法。";
     synchronized Object addTask(Map<String,Object> body)throws Exception {
         if(closing)throw new IllegalStateException("服務關閉中");if(array(state.get("tasks")).size()>=200)throw new IllegalArgumentException("最多保留 200 個任務，請匯出紀錄後使用新的資料目錄");
         String who=provider(required(body,"owner",20)),description=str(body,"description").strip(),title=str(body,"title").strip();if(description.length()>20000)throw new IllegalArgumentException("任務說明過長");
