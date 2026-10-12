@@ -48,15 +48,22 @@ final class Office implements AutoCloseable {
             }catch(Exception e){throw new IllegalArgumentException("Session 目錄無效或無權限："+Agents.clean(e));}
             Path oldDir=data.resolve("sessions");
             if(Files.exists(oldDir)&&!oldDir.equals(target)){
+                int[] copied={0},skipped={0},failed={0};
                 try(var stream=Files.walk(oldDir)){
-                    stream.forEach(source->{
+                    List<Path> paths=stream.toList();
+                    for(Path source:paths){
                         try{
                             Path dest=target.resolve(oldDir.relativize(source));
                             if(Files.isDirectory(source)){Files.createDirectories(dest);}
-                            else if(Files.isRegularFile(source)&&!Files.exists(dest)){Files.copy(source,dest,StandardCopyOption.REPLACE_EXISTING);}
-                        }catch(Exception ignored){}
-                    });
-                }catch(Exception ignored){}
+                            else if(Files.isRegularFile(source)){
+                                if(Files.exists(dest)){skipped[0]++;}
+                                else{Files.copy(source,dest,StandardCopyOption.REPLACE_EXISTING);copied[0]++;}
+                            }
+                        }catch(Exception ex){failed[0]++;Log.error("Session 檔案搬移失敗: "+source,ex);}
+                    }
+                }catch(Exception ex){Log.error("Session 遷移列舉失敗",ex);}
+                if(failed[0]>0){Log.error("Session 搬移部分失敗：成功 "+copied[0]+"，略過 "+skipped[0]+"，失敗 "+failed[0],null);}
+                else{Log.info("Session 搬移完成：成功 "+copied[0]+"，略過 "+skipped[0]+"，失敗 0");}
             }
         }
         c.put("sessionDir",sessionDir);
@@ -65,7 +72,13 @@ final class Office implements AutoCloseable {
     Path sessionPath(String id)throws Exception{
         String s=str(config(),"sessionDir").strip();
         Path dir;
-        if(s.isBlank()){dir=data.resolve("sessions");}
+        if(s.isBlank()){
+            if(Agents.WINDOWS&&Files.exists(Path.of("D:\\"))){
+                dir=Path.of("D:\\AI-Office-Sessions").toAbsolutePath().normalize();
+            }else{
+                dir=data.resolve("sessions");
+            }
+        }
         else{
             if((s.startsWith("\"")&&s.endsWith("\""))||(s.startsWith("'")&&s.endsWith("'"))){s=s.substring(1,s.length()-1).strip();}
             if(s.equals("~")||s.startsWith("~/")||s.startsWith("~\\")||s.startsWith("~"+java.io.File.separator)){s=System.getProperty("user.home")+s.substring(1);}

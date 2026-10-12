@@ -39,6 +39,12 @@ public final class CoreTest {
             check(str(o.config(),"workspace").equals(dir.toString()),"config persistence");
             var opts=object(o.discoverOptions());
             check(opts.containsKey("Codex")&&opts.containsKey("Company"),"options discovery");
+
+            // Test session path custom directory and migration
+            Path newSessionDir=dir.resolve("custom-sessions");
+            o.updateConfig(map("workspace",dir.toString(),"sessionDir",newSessionDir.toString(),"Codex",map("command","codex","model",""),"Gemini",map("command","gemini","model","")));
+            Path sp=o.sessionPath("test-session");
+            check(sp.toAbsolutePath().startsWith(newSessionDir.toAbsolutePath()),"custom session path applied");
         }
         System.out.println("Core checks passed: "+checks);
     }

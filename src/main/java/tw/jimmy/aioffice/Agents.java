@@ -146,8 +146,9 @@ final class Agents {
                 if(!model.isBlank())command.addAll(List.of("--model",model));
                 prompt=stringify(map("event","user","message",map("content",prompt)))+"\n";
             }else{
-                Path system=session.resolve("gemini-system.json");
-                Files.createDirectories(system.getParent());
+                Path systemDir=session.getRoot()!=null&&Files.exists(session.getRoot())?session.resolve(".system-settings"):session;
+                Files.createDirectories(systemDir);
+                Path system=systemDir.resolve("gemini-system.json");
                 Map<String,Object> sysConfig=map(
                     "tools",map("core",List.of(),"exclude",List.of("run_shell_command","write_file","replace"),"discoveryCommand","","callCommand",""),
                     "security",map("auth",map("selectedType","oauth-personal","enforcedType","oauth-personal")),
@@ -166,7 +167,15 @@ final class Agents {
             event.accept("執行中 · "+provider);String[] answer={""};Object[] usage={null};String[] failure={""};String[] observedModel={model};boolean[] initialized={false},finished={false};
             String out=execute(command,prompt,session,env,ctrl,600000,line->{if(provider.equals("Antigravity")){
                 try{var e=object(parse(line));String type=str(e,"event");
-                    if(type.equals("init")){var init=object(e.get("init"));initialized[0]=true;if(!str(init,"model").isBlank())observedModel[0]=str(init,"model");event.accept("連線已初始化 · Antigravity");}
+                    if(type.equals("init")){
+                        var init=object(e.get("init"));initialized[0]=true;
+                        if(!str(init,"model").isBlank())observedModel[0]=str(init,"model");
+                        String agentLoaded=str(init,"agent");
+                        if(!agentLoaded.isBlank()&&!agentLoaded.contains("ai-office-")){
+                            Log.error("Antigravity Agent 未正確載入指定無工具 Agent: "+agentLoaded,null);
+                        }
+                        event.accept("連線已初始化 · Antigravity");
+                    }
                     else if(type.equals("step_update")){if(!initialized[0])throw new IllegalArgumentException("Antigravity 缺少初始化事件");var step=object(e.get("step_update"));if(str(step,"step_type").equals("tool"))throw new IllegalArgumentException("Antigravity 嘗試使用工具，已停止");if(str(step,"state").equals("DONE"))event.accept("Antigravity · "+str(step,"step_type")+" · DONE");}
                     else if(type.equals("result")){if(!initialized[0]||finished[0])throw new IllegalArgumentException("Antigravity 結果事件無效");var result=object(e.get("result"));finished[0]=true;if(!str(result,"status").equals("SUCCESS"))failure[0]="Antigravity · "+str(result,"status")+"："+stringify(result.get("error"));else{answer[0]=str(result,"response");usage[0]=result.get("usage");}event.accept("Antigravity · "+str(result,"status"));}
                 }catch(IllegalArgumentException ex){throw new IllegalStateException("Antigravity 輸出無效："+ex.getMessage(),ex);}return;
@@ -223,7 +232,14 @@ final class Agents {
         try{ctrl.check();try(OutputStream stdin=p.getOutputStream()){stdin.write(input.getBytes(StandardCharsets.UTF_8));}
             if(!p.waitFor(timeout,TimeUnit.MILLISECONDS)){kill(p);throw new IOException("CLI 超時，已停止（10 分鐘上限）");}
             ctrl.check();String stdout=out.get(5,TimeUnit.SECONDS),stderr=err.get(5,TimeUnit.SECONDS);
-            if(p.exitValue()!=0)throw new IOException("CLI exit "+p.exitValue()+"："+(stderr.isBlank()?stdout:stderr).substring(0,Math.min(2500,(stderr.isBlank()?stdout:stderr).length())));
+            if(p.exitValue()!=0){
+                String msg=stderr.isBlank()?stdout:stderr;
+                if(msg.contains("exit 55")||msg.contains("Parent directory is insecure")){
+                    msg+=" (Gemini System Settings 目錄權限問題：請確認 parent directory 具備 SYSTEM 或管理員存取權限)";
+                }
+                int limit=Math.min(8000,msg.length());
+                throw new IOException("CLI exit "+p.exitValue()+"："+msg.substring(0,limit));
+            }
             return stdout.isBlank()?stderr:stdout;
         }finally{kill(p);groups.remove(p.pid());ctrl.process=null;readers.shutdownNow();}
     }
