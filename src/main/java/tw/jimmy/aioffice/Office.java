@@ -29,7 +29,7 @@ final class Office implements AutoCloseable {
     synchronized void saved(){try{save();}catch(Exception e){throw new IllegalStateException("無法保存紀錄："+Agents.clean(e),e);}}
     synchronized Object view(){var copy=object(parse(stringify(state)));var company=object(object(copy.get("config")).get("Company"));company.put("hasApiKey",!str(company,"apiKey").isBlank());company.remove("apiKey");copy.put("usage",Usage.local(state));copy.put("quotas",parse(stringify(quotas)));return copy;}
     synchronized Map<String,Object> config(){return object(parse(stringify(state.get("config"))));}
-    synchronized void event(String who,String text){var list=array(state.get("events"));list.add(map("at",now(),"who",who,"text",text));while(list.size()>150)list.remove(0);}
+    synchronized void event(String who,String text){var list=array(state.get("events"));list.add(map("at",now(),"who",who,"text",text));while(list.size()>150)list.remove(0);Log.info("["+who+"] "+text);}
     synchronized Map<String,Object> find(String kind,String id){return array(state.get(kind)).stream().map(Json::object).filter(o->str(o,"id").equals(id)).findFirst().orElseThrow(()->new IllegalArgumentException("找不到此項目"));}
     static String required(Map<String,Object> b,String k,int max){String s=str(b,k).strip();if(s.isBlank()||s.length()>max)throw new IllegalArgumentException(k+" 不可空白或過長");return s;}
     static String provider(String p){if(!Agents.PROVIDERS.contains(p))throw new IllegalArgumentException("未知的 AI 工具");return p;}
@@ -77,7 +77,7 @@ final class Office implements AutoCloseable {
     private synchronized void launch(String id,Consumer<Agents.Control> run){Agents.Control ctrl=new Agents.Control();active.put(id,ctrl);workers.execute(()->{ctrl.thread=Thread.currentThread();try{ctrl.check();run.accept(ctrl);}catch(InterruptedException e){Thread.interrupted();synchronized(this){for(String kind:List.of("tasks","meetings"))for(Object o:array(state.get(kind))){var v=object(o);if(str(v,"id").equals(id)){v.put("status","已停止");v.put("error","已停止");}}if(!closing)saved();}}
         finally{synchronized(this){active.remove(id);ctrl.thread=null;}Thread.interrupted();}});}
     private synchronized void status(Map<String,Object> obj,String status){obj.put("status",status);saved();}
-    private synchronized void failed(Map<String,Object> obj,Agents.Control ctrl,Exception e){Thread.interrupted();obj.put("status",ctrl.cancelled?"已停止":"失敗");obj.put("error",ctrl.cancelled?"已停止":Agents.clean(e));event("系統",str(obj,"title")+str(obj,"topic")+" · "+str(obj,"status"));if(!closing)saved();}
+    private synchronized void failed(Map<String,Object> obj,Agents.Control ctrl,Exception e){Thread.interrupted();obj.put("status",ctrl.cancelled?"已停止":"失敗");obj.put("error",ctrl.cancelled?"已停止":Agents.clean(e));event("系統",str(obj,"title")+str(obj,"topic")+" · "+str(obj,"status"));Log.error(str(obj,"title")+str(obj,"topic")+" failed",e);if(!closing)saved();}
     private void submitTask(Map<String,Object> t,Map<String,Object> c){String taskId=str(t,"id"),p=str(t,"owner");launch(taskId,ctrl->{try{
         ctrl.check();String prompt=BASE+"\n任務："+str(t,"title")+"\n說明："+str(t,"description")+context(array(t.get("files")));
         if(str(t,"mode").equals("edit"))prompt+="\n只輸出 JSON，不要加 markdown：{\"summary\":\"修改理由\",\"edits\":[{\"path\":\"附加檔案相對路徑\",\"content\":\"修改後完整內容\"}]}。只能修改附加的現有檔案。若無需修改，edits 為空陣列。";
