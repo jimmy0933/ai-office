@@ -146,8 +146,22 @@ final class Agents {
                 if(!model.isBlank())command.addAll(List.of("--model",model));
                 prompt=stringify(map("event","user","message",map("content",prompt)))+"\n";
             }else{
-                Path systemDir=session.getRoot()!=null&&Files.exists(session.getRoot())?session.resolve(".system-settings"):session;
+                Path systemDir=Path.of(System.getProperty("user.home"),".ai-office-java","gemini-system").toAbsolutePath();
                 Files.createDirectories(systemDir);
+                if(WINDOWS){
+                    try{
+                        java.nio.file.attribute.AclFileAttributeView view=Files.getFileAttributeView(systemDir,java.nio.file.attribute.AclFileAttributeView.class);
+                        if(view!=null){
+                            var owner=view.getOwner();
+                            var entry=java.nio.file.attribute.AclEntry.newBuilder()
+                                .setType(java.nio.file.attribute.AclEntryType.ALLOW)
+                                .setPrincipal(owner)
+                                .setPermissions(EnumSet.allOf(java.nio.file.attribute.AclEntryPermission.class))
+                                .build();
+                            view.setAcl(List.of(entry));
+                        }
+                    }catch(Exception ignored){}
+                }
                 Path system=systemDir.resolve("gemini-system.json");
                 Map<String,Object> sysConfig=map(
                     "tools",map("core",List.of(),"exclude",List.of("run_shell_command","write_file","replace"),"discoveryCommand","","callCommand",""),
@@ -172,7 +186,10 @@ final class Agents {
                         if(!str(init,"model").isBlank())observedModel[0]=str(init,"model");
                         String agentLoaded=str(init,"agent");
                         if(!agentLoaded.isBlank()&&!agentLoaded.contains("ai-office-")){
-                            Log.error("Antigravity Agent 未正確載入指定無工具 Agent: "+agentLoaded,null);
+                            throw new IllegalArgumentException("Antigravity CLI 未載入指定的無工具 Agent (載入了 "+agentLoaded+")");
+                        }
+                        if(init.get("tools") instanceof List<?> toolsList && !toolsList.isEmpty()){
+                            throw new IllegalArgumentException("Antigravity Agent 回報包含工具，違反無工具要求");
                         }
                         event.accept("連線已初始化 · Antigravity");
                     }
@@ -227,10 +244,24 @@ final class Agents {
         for(String key:List.of("OPENAI_API_KEY","CODEX_API_KEY","GEMINI_API_KEY","GOOGLE_API_KEY","GOOGLE_GENAI_USE_VERTEXAI","GOOGLE_GENAI_USE_GCA","GOOGLE_APPLICATION_CREDENTIALS","GOOGLE_GEMINI_BASE_URL","GEMINI_CLI_USE_COMPUTE_ADC","CLOUD_SHELL","GEMINI_DEFAULT_AUTH_TYPE","AGY_LLM_GATEWAY_API_KEY","AGY_LLM_GATEWAY_URL","AGY_LLM_GATEWAY_HEADERS","AGY_LLM_GATEWAY_MODELS","AGY_LLM_GATEWAY_PROXY_URL","AGY_LLM_GATEWAY_WIRE_PROTOCOL","AGY_BUSINESS_PAYGO_TIER","AGY_ADC_AUTH"))pb.environment().remove(key);
         for(String key:new ArrayList<>(pb.environment().keySet()))if(key.startsWith("ANTHROPIC_")||key.startsWith("CLAUDE_CODE_")||key.startsWith("CLAUDE_"))pb.environment().remove(key);
         pb.environment().putAll(env);Process p=pb.start();if(group)groups.add(p.pid());ctrl.process=p;
-        ExecutorService readers=Executors.newFixedThreadPool(2,r->{Thread t=new Thread(r,"cli-output");t.setDaemon(true);return t;});
-        Future<String> out=readers.submit(()->{try{return read(p.getInputStream(),8*1024*1024,line);}catch(Exception e){kill(p);throw e;}});Future<String> err=readers.submit(()->{try{return read(p.getErrorStream(),256*1024,s->{});}catch(Exception e){kill(p);throw e;}});
-        try{ctrl.check();try(OutputStream stdin=p.getOutputStream()){stdin.write(input.getBytes(StandardCharsets.UTF_8));}
-            if(!p.waitFor(timeout,TimeUnit.MILLISECONDS)){kill(p);throw new IOException("CLI 超時，已停止（10 分鐘上限）");}
+        ExecutorService ioPool=Executors.newFixedThreadPool(3,r->{Thread t=new Thread(r,"cli-io");t.setDaemon(true);return t;});
+        Future<String> out=ioPool.submit(()->{try{return read(p.getInputStream(),8*1024*1024,line);}catch(Exception e){kill(p);throw e;}});
+        Future<String> err=ioPool.submit(()->{try{return read(p.getErrorStream(),256*1024,s->{});}catch(Exception e){kill(p);throw e;}});
+        Future<?> writer=ioPool.submit(()->{
+            try(OutputStream stdin=p.getOutputStream()){
+                stdin.write(input.getBytes(StandardCharsets.UTF_8));
+                stdin.flush();
+            }catch(Exception e){if(p.isAlive())kill(p);}
+        });
+        try{
+            ctrl.check();
+            long deadLine=System.currentTimeMillis()+timeout;
+            while(p.isAlive()){
+                ctrl.check();
+                if(System.currentTimeMillis()>deadLine){kill(p);throw new IOException("CLI 超時，已停止（10 分鐘上限）");}
+                if(p.waitFor(200,TimeUnit.MILLISECONDS))break;
+            }
+            if(!writer.isDone()&&!p.isAlive())writer.cancel(true);
             ctrl.check();String stdout=out.get(5,TimeUnit.SECONDS),stderr=err.get(5,TimeUnit.SECONDS);
             if(p.exitValue()!=0){
                 String msg=stderr.isBlank()?stdout:stderr;
@@ -241,7 +272,7 @@ final class Agents {
                 throw new IOException("CLI exit "+p.exitValue()+"："+msg.substring(0,limit));
             }
             return stdout.isBlank()?stderr:stdout;
-        }finally{kill(p);groups.remove(p.pid());ctrl.process=null;readers.shutdownNow();}
+        }finally{kill(p);groups.remove(p.pid());ctrl.process=null;ioPool.shutdownNow();}
     }
     private static String read(InputStream stream,int limit,Consumer<String> line)throws Exception {
         StringBuilder full=new StringBuilder(),current=new StringBuilder();try(Reader r=new InputStreamReader(stream,StandardCharsets.UTF_8)){int c;while((c=r.read())!=-1){if(full.length()>=limit)throw new IOException("CLI 輸出超過上限");full.append((char)c);if(c=='\n'){line.accept(current.toString());current.setLength(0);}else current.append((char)c);}if(!current.isEmpty())line.accept(current.toString());}return full.toString();
