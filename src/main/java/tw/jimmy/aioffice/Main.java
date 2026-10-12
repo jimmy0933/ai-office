@@ -54,7 +54,14 @@ public final class Main {
     }catch(Exception e){System.out.println("請自行開啟："+url);}}
     void tray(){try{if(!SystemTray.isSupported())return;BufferedImage icon=new BufferedImage(32,32,BufferedImage.TYPE_INT_ARGB);Graphics g=icon.getGraphics();g.setColor(new Color(0x152526));g.fillRect(0,0,32,32);g.setColor(new Color(0xbaf39b));g.fillRect(7,7,18,14);g.fillRect(13,21,6,5);g.dispose();PopupMenu menu=new PopupMenu();MenuItem open=new MenuItem("Open AI Office"),exit=new MenuItem("Exit");open.addActionListener(e->browse(origin));exit.addActionListener(e->System.exit(0));menu.add(open);menu.add(exit);TrayIcon tray=new TrayIcon(icon,"AI Office Java",menu);tray.setImageAutoSize(true);tray.addActionListener(e->browse(origin));SystemTray.getSystemTray().add(tray);}catch(Exception ignored){}}
     public static void main(String[] args){try{
-        if(args.length==2&&args[0].equals("--capture-claude-quota")){byte[] bytes=System.in.readNBytes(65537);if(bytes.length>65536)throw new IllegalArgumentException("statusLine 輸入過大");var json=object(parse(new String(bytes,StandardCharsets.UTF_8)));Path target=Path.of(args[1]).toAbsolutePath();Files.createDirectories(target.getParent());ProjectFiles.atomicWrite(target,stringify(map("rate_limits",json.getOrDefault("rate_limits",map()))));System.out.println("AI Office quota synced");return;}
+        if(args.length>=2&&(args[0].equals("--capture-claude-quota")||args[0].equals("--capture-antigravity-quota")||args[0].equals("--capture-gemini-quota")||args[0].equals("--capture-quota"))){
+            byte[] bytes=System.in.readNBytes(65537);if(bytes.length>65536)throw new IllegalArgumentException("輸入過大");
+            var json=object(parse(new String(bytes,StandardCharsets.UTF_8)));
+            String targetPath=args[0].equals("--capture-quota")?args[2]:args[1];
+            Path target=Path.of(targetPath).toAbsolutePath();Files.createDirectories(target.getParent());
+            ProjectFiles.atomicWrite(target,stringify(args[0].equals("--capture-claude-quota")?map("rate_limits",json.getOrDefault("rate_limits",map())):json));
+            System.out.println("AI Office quota synced");return;
+        }
 
         Path data=Path.of(System.getProperty("user.home"),".ai-office-java");int port=4317;boolean browser=true;
         for(int i=0;i<args.length;i++)switch(args[i]){case "--data"->data=Path.of(args[++i]);case "--port"->port=Integer.parseInt(args[++i]);case "--no-browser"->browser=false;case "--help"->{System.out.println("AI Office Java: java -jar AI-Office-Java.jar [--port 4317] [--data PATH] [--no-browser]");return;}default->throw new IllegalArgumentException("未知參數："+args[i]);}
