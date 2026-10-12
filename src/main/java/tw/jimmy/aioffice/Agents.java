@@ -130,18 +130,18 @@ final class Agents {
                 List<String> statusCommand=new ArrayList<>(command);statusCommand.addAll(List.of("login","status"));
                 String login=execute(statusCommand,"",session,Map.of(),ctrl,12000,s->{}).toLowerCase(Locale.ROOT);
                 if(!login.contains("chatgpt")||login.contains("api key"))throw new IOException("此版只使用 ChatGPT 訂閱登入。請先執行 codex login 並選擇 ChatGPT，再重試。");
-                command.addAll(List.of("exec","--ignore-user-config","--sandbox","read-only","--skip-git-repo-check","--json","-c","forced_login_method=\"chatgpt\"","-c","cli_auth_credentials_store=\"auto\"","-c","approval_policy=\"never\"","-c","features.shell_tool=false","-c","features.apply_patch_freeform=false"));
+                command.addAll(List.of("exec","--sandbox","read-only","--skip-git-repo-check","--json","-c","forced_login_method=\"chatgpt\"","-c","cli_auth_credentials_store=\"auto\"","-c","approval_policy=\"never\""));
                 if(!model.isBlank())command.addAll(List.of("--model",model));command.add("-");
             }else if(provider.equals("Claude")){
                 List<String> auth=new ArrayList<>(command);auth.addAll(List.of("auth","status"));
                 var status=object(parse(execute(auth,"",session,Map.of(),ctrl,12000,x->{}).strip()));
                 if(!Boolean.TRUE.equals(status.get("loggedIn"))||!str(status,"authMethod").equals("claude.ai"))throw new IOException("請在設定頁登入 Claude 訂閱帳號；不接受 API 或第三方驗證。");
-                command.addAll(List.of("-p","--output-format","json","--tools","","--strict-mcp-config","--mcp-config","{\"mcpServers\":{}}","--setting-sources","","--settings","{\"forceLoginMethod\":\"claudeai\",\"disableAllHooks\":true}","--no-session-persistence"));
+                command.addAll(List.of("-p","--output-format","json","--settings","{\"forceLoginMethod\":\"claudeai\",\"disableAllHooks\":true}","--no-session-persistence"));
                 if(!model.isBlank())command.addAll(List.of("--model",model));
             }else if(provider.equals("Antigravity")){
                 String issue=antigravityIssue();if(!issue.isBlank())throw new IOException(issue);
                 String name="ai-office-"+UUID.randomUUID();Path agent=session.resolve(".agents/agents/"+name+"/agent.md");Files.createDirectories(agent.getParent());
-                Files.writeString(agent,"---\nname: "+name+"\ndescription: AI Office text analysis without tools\nmainAgent: true\nsubagent: false\ntools: []\nmcpServers: []\nskills: []\nplugins: []\ncommandExecutionPolicy: off\n---\n"+Office.BASE);
+                Files.writeString(agent,"---\nname: "+name+"\ndescription: AI Office Agent mode\nmainAgent: true\nsubagent: false\n---\n"+Office.BASE);
                 command.addAll(List.of("--agent",name,"--disable-slash-commands","--input-format","stream-json","--output-format","stream-json","--print-timeout","10m"));
                 if(!model.isBlank())command.addAll(List.of("--model",model));
                 prompt=stringify(map("event","user","message",map("content",prompt)))+"\n";
@@ -164,9 +164,8 @@ final class Agents {
                 }
                 Path system=systemDir.resolve("gemini-system.json");
                 Map<String,Object> sysConfig=map(
-                    "tools",map("core",List.of(),"exclude",List.of("run_shell_command","write_file","replace"),"discoveryCommand","","callCommand",""),
                     "security",map("auth",map("selectedType","oauth-personal","enforcedType","oauth-personal")),
-                    "admin",map("mcp",map("enabled",false),"extensions",map("enabled",false)),
+                    "admin",map("mcp",map("enabled",true),"extensions",map("enabled",true)),
                     "mcpServers",map(),
                     "hooksConfig",map("enabled",false),
                     "skills",map("enabled",false),
@@ -175,7 +174,7 @@ final class Agents {
                     "general",map("enableAutoUpdate",false)
                 );
                 ProjectFiles.atomicWrite(system,stringify(sysConfig));
-                env.put("GEMINI_CLI_SYSTEM_SETTINGS_PATH",system.toAbsolutePath().toString());command.addAll(List.of("--prompt","請回答標準輸入提供的任務，不要使用工具。","--output-format","json","--approval-mode","default","--extensions","none"));
+                env.put("GEMINI_CLI_SYSTEM_SETTINGS_PATH",system.toAbsolutePath().toString());command.addAll(List.of("--output-format","json","--approval-mode","default"));
                 if(!model.isBlank())command.addAll(List.of("--model",model));
             }
             event.accept("執行中 · "+provider);String[] answer={""};Object[] usage={null};String[] failure={""};String[] observedModel={model};boolean[] initialized={false},finished={false};
