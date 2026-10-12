@@ -25,7 +25,26 @@ function render(){if(!state)return;const tasks=state.tasks,meetings=state.meetin
   renderUsage();drawRoom();
 }
 function renderTask(){const t=state.tasks.find(t=>t.id===selectedTask);if(!t)return;
-  $('#task-detail').innerHTML=`<div class="detail-title"><div><span class="eyebrow">${escape(t.owner)} / ${escape(t.model||'等待回覆')}</span><h2>${escape(t.title)}</h2></div>${badge(t.status)}</div><p class="muted small">${escape(t.description)}<br>建立於 ${new Date(t.createdAt).toLocaleString('zh-TW')} · 附加 ${t.files.length} 個檔案</p><div class="actions">${busy.has(t.status)?`<button data-stop="${t.id}" class="secondary">停止任務</button>`:t.status!=='待核准'?`<button data-retry="${t.id}" class="secondary">重新執行</button>`:''}${t.status==='待核准'?`<button data-approve="${t.id}" class="primary">核准並套用修改</button><button data-reject="${t.id}">拒絕提案</button>`:''}</div>${t.error?`<div class="error">${escape(t.error)}</div>`:''}${t.lastEvent?`<p class="small muted">最後事件：${escape(t.lastEvent)}</p>`:''}<h3>${t.edits?.length?'修改提案':'組長回覆'}</h3><pre>${escape(t.result||'等待 CLI 回覆。')}</pre>${(t.edits||[]).map(e=>`<div class="change"><h3>${escape(e.path)}</h3><div class="diff-grid"><div><small>修改前</small><pre>${escape(e.before)}</pre></div><div><small>修改後</small><pre>${escape(e.content)}</pre></div></div></div>`).join('')}${t.appliedAt?'<p class="small muted">已套用。原始內容已保存於電腦端備份目錄。</p>':''}`;
+  const historyHtml=(t.history||[]).map(h=>`<div class="message ${h.who!=='你'?'gemini':'you'}"><div class="message-head"><strong>${escape(h.who)}</strong><span class="muted small">${time(h.at)}</span></div><p>${escape(h.text)}</p></div>`).join('');
+  const followupForm=!busy.has(t.status)&&t.status!=='待核准'?`<form id="task-followup-form" style="margin-top:20px"><label><b>繼續對話 / 追加修正：</b><textarea name="text" rows="3" placeholder="提出進一步修正、詢問細節或補充說明…" required></textarea></label><button type="submit" class="primary">傳送對話修正</button></form>`:'';
+  $('#task-detail').innerHTML=`<div class="detail-title"><div><span class="eyebrow">${escape(t.owner)} / ${escape(t.model||'等待回覆')}</span><h2>${escape(t.title)}</h2></div>${badge(t.status)}</div><p class="muted small">${escape(t.description)}<br>建立於 ${new Date(t.createdAt).toLocaleString('zh-TW')} · 附加 ${t.files.length} 個檔案</p><div class="actions">${busy.has(t.status)?`<button data-stop="${t.id}" class="secondary">停止任務</button>`:t.status!=='待核准'?`<button data-retry="${t.id}" class="secondary">重新執行</button><button data-delete="${t.id}">刪除任務</button>`:''}${t.status==='待核准'?`<button data-approve="${t.id}" class="primary">核准並套用修改</button><button data-reject="${t.id}">拒絕提案</button>`:''}</div>${t.error?`<div class="error">${escape(t.error)}</div>`:''}${t.lastEvent?`<p class="small muted">最後事件：${escape(t.lastEvent)}</p>`:''}<h3>${t.edits?.length?'修改提案':'組長最新回覆'}</h3><pre>${escape(t.result||'等待 CLI 回覆。')}</pre>${(t.edits||[]).map(e=>`<div class="change"><h3>${escape(e.path)}</h3><div class="diff-grid"><div><small>修改前</small><pre>${escape(e.before)}</pre></div><div><small>修改後</small><pre>${escape(e.content)}</pre></div></div></div>`).join('')}${t.appliedAt?'<p class="small muted">已套用。原始內容已保存於電腦端備份目錄。</p>':''}${historyHtml?`<div style="margin-top:24px"><h3>對話歷程</h3>${historyHtml}</div>`:''}${followupForm}`;
+  const form=$('#task-followup-form');
+  if(form){
+    bind('#task-followup-form','submit',async e=>{
+      e.preventDefault();
+      const input=e.target.elements.text;
+      const val=input.value.trim();
+      if(!val)return;
+      const b=e.target.querySelector('button');
+      b.disabled=true;
+      try{
+        await api('task-followup',{id:t.id,text:val});
+        input.value='';
+        toast('對話修正已送出');
+        await refresh();
+      }finally{b.disabled=false;}
+    });
+  }
 }
 function renderMeeting(){const m=state.meetings.find(m=>m.id===selectedMeeting);if(!m)return;
   $('#meeting-heading').innerHTML=`<div class="detail-title"><h2>${escape(m.topic)}</h2>${badge(m.status)}</div><p class="muted small">${escape((m.participants||['Gemini','Codex']).join(' ＋ '))} · ${m.round||0} / ${m.rounds} 輪${busy.has(m.status)&&m.speaker?' · '+escape(m.speaker)+' 準備／發言中':''}</p>${busy.has(m.status)?`<button data-stop="${m.id}" class="secondary">停止會議</button>`:''}${m.error?`<div class="error">${escape(m.error)}</div>`:''}`;

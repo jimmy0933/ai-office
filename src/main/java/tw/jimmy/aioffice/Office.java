@@ -127,6 +127,23 @@ final class Office implements AutoCloseable {
     synchronized Object retry(String id)throws Exception {var t=find("tasks",id);if(active.containsKey(id)||str(t,"status").equals("待核准"))throw new IllegalArgumentException("任務仍在執行或等待核准");
         List<String> paths=array(t.get("files")).stream().map(Json::object).map(f->str(f,"path")).toList();return addTask(map("owner",t.get("owner"),"title",t.get("title"),"description",t.get("description"),"mode",t.get("mode"),"paths",String.join("\n",paths)));
     }
+    synchronized Object followupTask(String id,String text)throws Exception {
+        var t=find("tasks",id);
+        if(active.containsKey(id)||str(t,"status").equals("待核准"))throw new IllegalArgumentException("任務仍在執行或等待核准");
+        if(text.isBlank()||text.length()>10000)throw new IllegalArgumentException("對話修正內容無效");
+        var history=array(t.get("history"));
+        if(history.isEmpty()&&!str(t,"result").isBlank()){
+            history.add(map("who",t.get("owner"),"text",t.get("result"),"at",now()));
+        }
+        history.add(map("who","你","text",text,"at",now()));
+        t.put("status","佇列中");
+        t.put("lastEvent","你追加對話："+(text.length()>30?text.substring(0,30)+"...":text));
+        event(str(t,"owner"),"對話修正任務："+str(t,"title"));
+        save();
+        var c=config();
+        submitTask(t,c);
+        return map("ok",true);
+    }
     synchronized Object deleteTask(String id)throws Exception {
         if(active.containsKey(id))throw new IllegalArgumentException("無法刪除正在執行的任務");
         var list=array(state.get("tasks"));
@@ -139,7 +156,16 @@ final class Office implements AutoCloseable {
     private synchronized void status(Map<String,Object> obj,String status){obj.put("status",status);saved();}
     private synchronized void failed(Map<String,Object> obj,Agents.Control ctrl,Exception e){Thread.interrupted();obj.put("status",ctrl.cancelled?"已停止":"失敗");obj.put("error",ctrl.cancelled?"已停止":Agents.clean(e));event("系統",str(obj,"title")+str(obj,"topic")+" · "+str(obj,"status"));Log.error(str(obj,"title")+str(obj,"topic")+" failed",e);if(!closing)saved();}
     private void submitTask(Map<String,Object> t,Map<String,Object> c){String taskId=str(t,"id"),p=str(t,"owner");launch(taskId,ctrl->{try{
-        ctrl.check();String prompt=BASE+"\n任務："+str(t,"title")+"\n說明："+str(t,"description")+context(array(t.get("files")));
+        ctrl.check();StringBuilder histStr=new StringBuilder();
+        var histList=array(t.get("history"));
+        if(!histList.isEmpty()){
+            histStr.append("\n\n對話與修正歷史：\n");
+            for(Object h:histList){
+                var ho=object(h);
+                histStr.append("[").append(str(ho,"who")).append("] ").append(str(ho,"text")).append("\n\n");
+            }
+        }
+        String prompt=BASE+"\n任務："+str(t,"title")+"\n說明："+str(t,"description")+context(array(t.get("files")))+histStr;
         if(str(t,"mode").equals("edit"))prompt+="\n只輸出 JSON，不要加 markdown：{\"summary\":\"修改理由\",\"edits\":[{\"path\":\"附加檔案相對路徑\",\"content\":\"修改後完整內容\"}]}。只能修改附加的現有檔案。若無需修改，edits 為空陣列。";
         var r=agents.run(p,prompt,c,sessionPath(id()),ctrl,text->{synchronized(this){if(text.startsWith("執行中"))t.put("status","執行中");t.put("lastEvent",text);event(p,text);}});
         ctrl.check();List<Object> edits=str(t,"mode").equals("edit")?ProjectFiles.proposal(r.text(),array(t.get("files"))):List.of();synchronized(this){ctrl.check();t.putAll(map("result",r.text(),"usage",r.usage(),"model",r.model(),"edits",edits,"status",edits.isEmpty()?"完成":"待核准","finishedAt",now()));success(p,r);event(p,"任務"+str(t,"status")+"："+str(t,"title"));save();}
