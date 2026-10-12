@@ -16,12 +16,13 @@ final class Office implements AutoCloseable {
         this.data=data.toAbsolutePath();Files.createDirectories(this.data);lockChannel=FileChannel.open(this.data.resolve("office.lock"),StandardOpenOption.CREATE,StandardOpenOption.WRITE);
         FileLock lock;try{lock=lockChannel.tryLock();}catch(OverlappingFileLockException e){lock=null;}if(lock==null){lockChannel.close();throw new IllegalArgumentException("同一資料目錄的 AI Office 已在執行。請先結束原本的程式。");}dataLock=lock;Path file=this.data.resolve("office.json");
         try{
-        state=Files.exists(file)?object(parse(Files.readString(file))):map("version","0.7.2-java","config",map("workspace","","Codex",map("command","codex","model",""),"Gemini",map("command","gemini","model","")),"tasks",new ArrayList<>(),"meetings",new ArrayList<>(),"events",new ArrayList<>(),"connections",map());
-        state.put("version","0.7.2-java");state.putIfAbsent("usageChecks",new ArrayList<>());object(state.get("config")).putIfAbsent("Antigravity",map("command","agy","model",""));
+        state=Files.exists(file)?object(parse(Files.readString(file))):map("version","0.8.0-java","config",map("workspace","","mode","isolated","Codex",map("command","codex","model","","mode","isolated"),"Gemini",map("command","gemini","model","","mode","isolated")),"tasks",new ArrayList<>(),"meetings",new ArrayList<>(),"mrReviews",new ArrayList<>(),"events",new ArrayList<>(),"connections",map());
+        state.put("version","0.8.0-java");state.putIfAbsent("usageChecks",new ArrayList<>());object(state.get("config")).putIfAbsent("Antigravity",map("command","agy","model",""));
         object(state.get("config")).putIfAbsent("Claude",map("command","claude","model",""));
         object(state.get("config")).putIfAbsent("Company",map("baseUrl","","model","","apiKey","","timeoutSeconds",120));
         for(Object item:array(state.get("meetings")))object(item).putIfAbsent("participants",List.of("Gemini","Codex"));
-        for(String key:List.of("tasks","meetings"))for(Object item:array(state.get(key))){var o=object(item);if(Set.of("佇列中","執行中","討論中","整理中","停止中").contains(str(o,"status"))){o.put("status","已中斷");o.put("error","上次程式關閉，請重新執行");}}
+        state.putIfAbsent("mrReviews",new ArrayList<>());
+        for(String key:List.of("tasks","meetings","mrReviews"))for(Object item:array(state.get(key))){var o=object(item);if(Set.of("佇列中","執行中","討論中","整理中","進行中","交叉審查中","停止中").contains(str(o,"status"))){o.put("status","已中斷");o.put("error","上次程式關閉，請重新執行");}}
         save();}catch(Exception e){dataLock.release();lockChannel.close();throw e;}
     }
     static String id(){return UUID.randomUUID().toString();}static String now(){return Instant.now().toString();}
@@ -193,6 +194,118 @@ final class Office implements AutoCloseable {
     }
     private String meetingPrompt(Map<String,Object> m,String p,boolean summary){StringBuilder transcript=new StringBuilder();for(Object o:array(m.get("messages"))){var msg=object(o);transcript.append(str(msg,"who")).append("：").append(str(msg,"text")).append("\n\n");}String history=transcript.toString();if(history.length()>80000)history="[較早紀錄省略]\n"+history.substring(history.length()-80000);
         return BASE+"\n你是 "+p+"。主題："+str(m,"topic")+context(array(m.get("files")))+"\n共享會議紀錄：\n"+history+(summary?"\n整理共識、分歧、證據、待辦與驗證方法。":"\n回應上一位發言，指出同意或不同意的理由，提出具體建議。最多 600 字。");
+    }
+    synchronized Object addMrReview(Map<String,Object> body)throws Exception {
+        if(closing)throw new IllegalStateException("服務關閉中");
+        String mrUrl=required(body,"mrUrl",2000);
+        final String baseSha=str(body,"baseSha").strip().isBlank()?"HEAD~1":str(body,"baseSha").strip();
+        final String headSha=str(body,"headSha").strip().isBlank()?"HEAD":str(body,"headSha").strip();
+        List<String> participants=new ArrayList<>();
+        for(Object item:array(body.getOrDefault("participants",List.of("Codex","Gemini","Antigravity")))){
+            if(item instanceof String s)participants.add(provider(s));
+        }
+        if(participants.isEmpty())throw new IllegalArgumentException("請至少選擇一位 Review Agent");
+        final String summarizer=participants.contains("Codex")?"Codex":participants.get(0);
+        final String reviewId=id();
+        var review=map("id",reviewId,"mrUrl",mrUrl,"baseSha",baseSha,"headSha",headSha,"participants",participants,"summarizer",summarizer,"status","進行中","createdAt",now(),"parallelFindings",map(),"crossReviews",map(),"summaryReport","","logs",new ArrayList<>());
+        array(state.get("mrReviews")).add(0,review);
+        event("MR Review","開始多 Agent 平行 review："+mrUrl);
+        save();
+
+        var c=config();
+        launch(reviewId,ctrl->{
+            try{
+                ctrl.check();
+                event("MR Review","階段 1：下載並對齊 MR diff (base="+baseSha+", head="+headSha+")");
+                String diffText="";
+                try{
+                    Path ws=ProjectFiles.root(str(c,"workspace"));
+                    List<String> gitCmd=List.of("git","diff",baseSha+".."+headSha);
+                    diffText=agents.execute(gitCmd,"",ws,Map.of(),ctrl,15000,line->{});
+                }catch(Exception ex){
+                    diffText="[Git Diff 讀取失敗/改用文字內容] "+Agents.clean(ex);
+                }
+                final String diffContext="[MR Diff & context for "+mrUrl+" (SHA: "+baseSha+".."+headSha+")]\n"+diffText;
+
+                // Stage 2: Parallel Review
+                event("MR Review","階段 2：平行獨立 Review 開始 (Agents: "+String.join(", ",participants)+")");
+                Map<String,Object> parallelFindings=new ConcurrentHashMap<>();
+                List<CompletableFuture<Void>> futures=new ArrayList<>();
+
+                for(String p:participants){
+                    futures.add(CompletableFuture.runAsync(()->{
+                        try{
+                            ctrl.check();
+                            String prompt=BASE+"\n任務：針對 MR ("+mrUrl+") 做獨立 Code Review。\nBase SHA: "+baseSha+", Head SHA: "+headSha+"\nDiff:\n"+diffContext+"\n請產出發現清單，包含 ID (FIND-XX)、嚴重度 (高/中/低)、檔案行號、標題、影響與建議。";
+                            var r=agents.run(p,prompt,c,sessionPath(reviewId).resolve(p),ctrl,evt->{
+                                synchronized(this){event("MR Review",p+" · "+evt);}
+                            });
+                            parallelFindings.put(p,r.text());
+                            success(p,r);
+                        }catch(Exception ex){
+                            parallelFindings.put(p,"[Review 失敗] "+Agents.clean(ex));
+                            Log.error("MR Parallel review failed for "+p,ex);
+                        }
+                    },workers));
+                }
+                CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+                ctrl.check();
+                synchronized(this){review.put("parallelFindings",parallelFindings);review.put("status","交叉審查中");save();}
+
+                // Stage 3: Cross Review
+                event("MR Review","階段 3：Agent 交叉審查開始");
+                Map<String,Object> crossReviews=new ConcurrentHashMap<>();
+                List<CompletableFuture<Void>> crossFutures=new ArrayList<>();
+
+                for(String p:participants){
+                    crossFutures.add(CompletableFuture.runAsync(()->{
+                        try{
+                            ctrl.check();
+                            StringBuilder otherFindings=new StringBuilder();
+                            for(var entry:parallelFindings.entrySet()){
+                                if(!entry.getKey().equals(p)){
+                                    otherFindings.append("\n=== ").append(entry.getKey()).append(" 的發現 ===\n").append(entry.getValue()).append("\n");
+                                }
+                            }
+                            String prompt=BASE+"\n任務：請交叉審查其他 Agent 的 Finding。\nMR SHA: "+baseSha+".."+headSha+"\n其他 Agent 發現如下：\n"+otherFindings+"\n請回覆同意/不同意/補充及程式證據。";
+                            var r=agents.run(p,prompt,c,sessionPath(reviewId).resolve(p+"_cross"),ctrl,evt->{
+                                synchronized(this){event("MR Review",p+" 交叉審查 · "+evt);}
+                            });
+                            crossReviews.put(p,r.text());
+                            success(p,r);
+                        }catch(Exception ex){
+                            crossReviews.put(p,"[交叉審查失敗] "+Agents.clean(ex));
+                        }
+                    },workers));
+                }
+                CompletableFuture.allOf(crossFutures.toArray(new CompletableFuture[0])).join();
+                ctrl.check();
+                synchronized(this){review.put("crossReviews",crossReviews);review.put("status","整理報告中");save();}
+
+                // Stage 4: Summary Report
+                event("MR Review","階段 4：整合報告中 ("+summarizer+")");
+                StringBuilder summaryPrompt=new StringBuilder(BASE);
+                summaryPrompt.append("\n任務：整合多 Agent MR Review 最終報告。\nMR URL: ").append(mrUrl).append("\nBase SHA: ").append(baseSha).append(", Head SHA: ").append(headSha).append("\n");
+                summaryPrompt.append("\n第一輪獨立發現：\n").append(stringify(parallelFindings));
+                summaryPrompt.append("\n第二輪交叉審查意見：\n").append(stringify(crossReviews));
+                summaryPrompt.append("\n請輸出結構化 Markdown 報告，包含：1. MR 資訊與審查範圍 2. 已確認問題與證據 3. 爭議/待確認問題 4. 交叉審查結論。");
+
+                var r=agents.run(summarizer,summaryPrompt.toString(),c,sessionPath(reviewId).resolve("summary"),ctrl,evt->{
+                    synchronized(this){event("MR Review","整理報告 · "+evt);}
+                });
+                synchronized(this){
+                    review.put("summaryReport",r.text());
+                    review.put("status","已完成");
+                    review.put("finishedAt",now());
+                    success(summarizer,r);
+                    event("MR Review","MR Review 完成："+mrUrl);
+                    save();
+                }
+            }catch(Exception e){
+                failed(review,ctrl,e);
+            }
+        });
+        return map("id",reviewId);
     }
     synchronized Object interject(String id,String text)throws Exception {var m=find("meetings",id);if(!active.containsKey(id)||str(m,"status").equals("整理中"))throw new IllegalArgumentException("目前無法插話");if(text.isBlank()||text.length()>10000)throw new IllegalArgumentException("插話內容無效");array(m.get("messages")).add(map("who","你","text",text,"at",now()));save();return map("ok",true);}
     synchronized Object stop(String id){var ctrl=active.get(id);if(ctrl==null)throw new IllegalArgumentException("此工作未執行");ctrl.stop();event("你","要求停止工作");return map("ok",true);}
