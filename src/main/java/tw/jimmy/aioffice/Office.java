@@ -66,13 +66,25 @@ final class Office implements AutoCloseable {
     static final String BASE="你是 AI Office 的工程師。使用繁體中文。只依據提供的資料回答；不要使用工具、執行指令或自行讀寫檔案。不得宣稱已做未執行的測試。說明證據、不確定之處與驗證方法。";
     synchronized Object addTask(Map<String,Object> body)throws Exception {
         if(closing)throw new IllegalStateException("服務關閉中");if(array(state.get("tasks")).size()>=200)throw new IllegalArgumentException("最多保留 200 個任務，請匯出紀錄後使用新的資料目錄");
-        String who=provider(required(body,"owner",20)),title=required(body,"title",150),description=str(body,"description");if(description.length()>20000)throw new IllegalArgumentException("任務說明過長");
+        String who=provider(required(body,"owner",20)),description=str(body,"description").strip(),title=str(body,"title").strip();if(description.length()>20000)throw new IllegalArgumentException("任務說明過長");
+        if(title.isBlank()){
+            if(!description.isBlank()){String line=description.lines().findFirst().orElse(description);title=line.length()>50?line.substring(0,50)+"...":line;}
+            else{title="新任務 "+now().substring(0,10);}
+        }
+        if(title.length()>150)title=title.substring(0,150);
         var c=config();String root=str(c,"workspace");var files=ProjectFiles.snapshot(root,str(body,"paths"));boolean edit=str(body,"mode").equals("edit");if(edit&&files.isEmpty())throw new IllegalArgumentException("修改提案需要先附加檔案");
         var task=map("id",id(),"owner",who,"title",title,"description",description,"mode",edit?"edit":"analyze","root",root,"files",files,"status","佇列中","createdAt",now(),"result","","edits",new ArrayList<>(),"history",new ArrayList<>());
         array(state.get("tasks")).add(0,task);event(who,"新增任務："+title);save();submitTask(task,c);return map("id",task.get("id"));
     }
     synchronized Object retry(String id)throws Exception {var t=find("tasks",id);if(active.containsKey(id)||str(t,"status").equals("待核准"))throw new IllegalArgumentException("任務仍在執行或等待核准");
         List<String> paths=array(t.get("files")).stream().map(Json::object).map(f->str(f,"path")).toList();return addTask(map("owner",t.get("owner"),"title",t.get("title"),"description",t.get("description"),"mode",t.get("mode"),"paths",String.join("\n",paths)));
+    }
+    synchronized Object deleteTask(String id)throws Exception {
+        if(active.containsKey(id))throw new IllegalArgumentException("無法刪除正在執行的任務");
+        var list=array(state.get("tasks"));
+        boolean removed=list.removeIf(o->str(object(o),"id").equals(id));
+        if(!removed)throw new IllegalArgumentException("找不到要刪除的任務");
+        event("你","已刪除任務");save();return map("ok",true);
     }
     private synchronized void launch(String id,Consumer<Agents.Control> run){Agents.Control ctrl=new Agents.Control();active.put(id,ctrl);workers.execute(()->{ctrl.thread=Thread.currentThread();try{ctrl.check();run.accept(ctrl);}catch(InterruptedException e){Thread.interrupted();synchronized(this){for(String kind:List.of("tasks","meetings"))for(Object o:array(state.get(kind))){var v=object(o);if(str(v,"id").equals(id)){v.put("status","已停止");v.put("error","已停止");}}if(!closing)saved();}}
         finally{synchronized(this){active.remove(id);ctrl.thread=null;}Thread.interrupted();}});}

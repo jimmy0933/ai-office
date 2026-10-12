@@ -37,6 +37,7 @@ document.addEventListener('click',e=>{const b=e.target.closest('button');if(!b||
   if(b.dataset.meeting){selectedMeeting=b.dataset.meeting;render();}
   if(b.dataset.stop){await api('stop',{id:b.dataset.stop});toast('已要求停止');await refresh();}
   if(b.dataset.retry){const r=await api('retry',{id:b.dataset.retry});selectedTask=r.id;toast('已重新加入佇列');await refresh();}
+  if(b.dataset.delete){if(!confirm('確定要刪除此任務？'))return;await api('task-delete',{id:b.dataset.delete});selectedTask='';toast('任務已刪除');await refresh();}
   if(b.dataset.approve||b.dataset.reject){const approve=!!b.dataset.approve;if(approve&&!confirm('套用此提案至專案檔案？原始內容會先備份。'))return;await api('approval',{id:b.dataset.approve||b.dataset.reject,decision:approve?'approve':'reject'});toast(approve?'修改已套用':'提案已拒絕');await refresh();}
 })().catch(e=>toast(e.message,true));});
 bind('#task-form','submit',async e=>{e.preventDefault();const form=e.target,b=form.querySelector('[type="submit"]');b.disabled=true;try{const data=Object.fromEntries(new FormData(form));const r=await api('task',data);selectedTask=r.id;toast('任務已加入佇列');await refresh();}finally{b.disabled=false;}});
@@ -157,3 +158,40 @@ bind('#quota-refresh','click',refreshQuota);
 setInterval(()=>{if(page==='usage'&&!document.hidden)refreshQuota();},60000);
 function renderUsage(){const fmt=n=>Number(n||0).toLocaleString('zh-TW');$('#usage-cards').innerHTML=['Codex','Gemini','Antigravity','Claude','Company'].map(p=>{const u=state.usage?.[p]||{},q=state.quotas?.[p],updated=q?.updatedAt,stale=!updated||Date.now()-new Date(updated).getTime()>120000;const windows=q?.windows||[];let windowsHtml='';if(windows.length>0){windowsHtml=windows.map(w=>{const value=Number(w.usedPercent),valid=Number.isFinite(value)&&value>=0&&value<=100;return valid?`<div class="quota-window"><strong>${escape(w.name)}</strong><span>剩餘 ${(100-value).toFixed(1)}%</span><progress max="100" value="${100-value}"></progress><small>已用 ${value.toFixed(1)}% · 重置 ${w.resetsAt?escape(new Date(Number(w.resetsAt)*1000).toLocaleString('zh-TW')):'未提供'}</small></div>`:''}).join('');}else if(['Gemini','Antigravity'].includes(p)){windowsHtml=`<div class="quota-window"><strong>官方訂閱額度</strong><span>請透過官方 CLI 查詢</span><small>${p==='Gemini'?'開啟官方 CLI 後輸入 /stats model':'開啟官方 CLI 後輸入 /usage'}</small></div>`;}return `<article class="panel"><h2>${p}</h2><p class="muted small">${escape(q?.source||'尚未接入自動額度來源')}<br>${escape(q?.status||'尚未查詢')}</p>${windowsHtml}<p class="small muted">${updated?'更新：'+escape(new Date(updated).toLocaleString('zh-TW')):'尚無更新時間'}${stale&&updated?' · 舊快照，請確認官方額度':''}</p><hr><p>AI Office 累計回覆：<b>${fmt(u.calls)}</b><br>有回報用量：${fmt(u.reportedCalls)} / ${fmt(u.calls)}${u.diagnosticCalls?'<br>其中連線測試：'+fmt(u.diagnosticCalls):''}</p><p>${u.reportedCalls?'已回報 Token：<b>'+fmt(u.total)+'</b><br>輸入 '+fmt(u.input)+' · 輸出 '+fmt(u.output)+'<br>快取讀取 '+fmt(u.cached):'Token：尚未回報'}</p><small class="muted">${u.lastAt?'最近回覆 '+escape(new Date(u.lastAt).toLocaleString('zh-TW')):'尚無回覆'}</small>${['Claude','Gemini','Antigravity'].includes(p)?`<button class="secondary wide" data-quota-terminal="${p}">開啟官方額度查詢</button>`:''}</article>`;}).join('');}
 document.addEventListener('click',e=>{const button=e.target.closest('[data-quota-terminal]');if(button)api('quota-terminal',{provider:button.dataset.quotaTerminal}).then(r=>toast(r.message)).catch(e=>toast(e.message,true));});
+
+let fontScale = Number(localStorage.getItem('office-font-scale')) || 1;
+function setFontScale(s) {
+  fontScale = Math.max(0.8, Math.min(1.4, Math.round(s * 10) / 10));
+  document.documentElement.style.setProperty('--font-scale', fontScale);
+  localStorage.setItem('office-font-scale', fontScale);
+}
+setFontScale(fontScale);
+bind('#fs-dec', 'click', () => setFontScale(fontScale - 0.1));
+bind('#fs-reset', 'click', () => setFontScale(1));
+bind('#fs-inc', 'click', () => setFontScale(fontScale + 0.1));
+
+document.addEventListener('paste', e => {
+  const target = e.target;
+  if (!target || target.tagName !== 'TEXTAREA') return;
+  const items = e.clipboardData?.items;
+  if (!items) return;
+  for (const item of items) {
+    if (item.type && item.type.startsWith('image/')) {
+      e.preventDefault();
+      const file = item.getAsFile();
+      if (!file) continue;
+      const reader = new FileReader();
+      reader.onload = ev => {
+        const dataUrl = ev.target.result;
+        const textToInsert = `\n![貼上截圖](${dataUrl})\n`;
+        const start = target.selectionStart || target.value.length;
+        const end = target.selectionEnd || target.value.length;
+        target.value = target.value.substring(0, start) + textToInsert + target.value.substring(end);
+        target.selectionStart = target.selectionEnd = start + textToInsert.length;
+        toast('已貼上剪貼簿截圖');
+      };
+      reader.readAsDataURL(file);
+      break;
+    }
+  }
+});
