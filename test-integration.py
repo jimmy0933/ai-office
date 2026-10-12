@@ -234,6 +234,8 @@ try:
     check('private-test-key' not in json.dumps(request('export')[1]),'export hides company key')
     before=state()['usage']['Company']
     check(post('company-test',{})['response']=='COMPANY_REPLY','company test transport')
+    opts=request('options')[1]
+    check('Codex' in opts and 'Company' in opts,'options endpoint returns providers')
     after=state()['usage']['Company']
     check(after['calls']==before['calls']+1 and after['diagnosticCalls']==before['diagnosticCalls']+1 and after['total']==before['total']+5,'company diagnostic usage accounted')
     check('private-test-key' not in json.dumps(request('export')[1]),'diagnostic export hides key')

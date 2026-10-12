@@ -35,7 +35,11 @@ public final class CoreTest {
         Files.writeString(file,"changed elsewhere");rejects(()->ProjectFiles.apply(dir.toString(),edits,dir.resolve("backups/stale")),"stale edit");check(Files.readString(file).equals("changed elsewhere"),"stale refusal preserves file");
         Files.writeString(file,before);ProjectFiles.apply(dir.toString(),edits,dir.resolve("backups/good"));check(Files.readString(file).equals(proposed),"apply edits");check(Files.readString(dir.resolve("backups/good/originals.json")).contains("before"),"backup");
         Path store=dir.resolve("office-data");try(Office o=new Office(store)){o.updateConfig(map("workspace",dir.toString(),"Codex",map("command","codex","model",""),"Gemini",map("command","gemini","model","")));}
-        try(Office o=new Office(store)){check(str(o.config(),"workspace").equals(dir.toString()),"config persistence");}
+        try(Office o=new Office(store)){
+            check(str(o.config(),"workspace").equals(dir.toString()),"config persistence");
+            var opts=object(o.discoverOptions());
+            check(opts.containsKey("Codex")&&opts.containsKey("Company"),"options discovery");
+        }
         System.out.println("Core checks passed: "+checks);
     }
 }

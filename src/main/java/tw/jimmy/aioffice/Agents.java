@@ -53,6 +53,70 @@ final class Agents {
             if(!WINDOWS&&!Files.isExecutable(p))continue;return List.of(p.toAbsolutePath().toString());
         }throw new IllegalArgumentException("找不到 "+command+"；請安裝 CLI，或指定完整執行檔路徑");
     }
+
+    static List<String> findExecutables(String provider){
+        if(provider.equals("Company"))return List.of();
+        Set<String> set=new LinkedHashSet<>();
+        String defaultCmd=provider.equals("Codex")?"codex":provider.equals("Gemini")?"gemini":provider.equals("Antigravity")?"agy":"claude";
+        try{
+            resolve(defaultCmd,provider);
+            set.add(defaultCmd);
+        }catch(Exception ignored){}
+
+        String env=System.getenv("PATH");if(env==null)env=System.getenv("Path");
+        for(String dir:(env==null?"":env).split(java.util.regex.Pattern.quote(File.pathSeparator))){
+            if(!dir.isBlank()){
+                for(String ext:WINDOWS?List.of(".exe",".cmd",".bat",""):List.of("")){
+                    Path p=Path.of(dir.replace("\"",""),defaultCmd+ext);
+                    if(Files.isRegularFile(p)){
+                        try{
+                            resolve(p.toString(),provider);
+                            set.add(p.toAbsolutePath().toString());
+                        }catch(Exception ignored){}
+                    }
+                }
+            }
+        }
+        if(provider.equals("Antigravity")){
+            Path agyPath=WINDOWS&&System.getenv("LOCALAPPDATA")!=null?
+                Path.of(System.getenv("LOCALAPPDATA"),"agy","bin","agy.exe"):
+                Path.of(System.getProperty("user.home"),".local","bin","agy");
+            if(Files.isRegularFile(agyPath)){
+                try{
+                    resolve(agyPath.toString(),provider);
+                    set.add(agyPath.toAbsolutePath().toString());
+                }catch(Exception ignored){}
+            }
+        }
+        return new ArrayList<>(set);
+    }
+
+    List<String> discoverModels(String provider,Map<String,Object> config)throws Exception {
+        if(provider.equals("Company"))return Company.fetchModels(object(config.get("Company")));
+        var settings=object(config.get(provider));
+        List<String> defaults=switch(provider){
+            case "Codex"->List.of("gpt-4o","gpt-4o-mini","o1","o1-mini","o3-mini");
+            case "Gemini"->List.of("gemini-2.5-pro","gemini-2.5-flash","gemini-2.0-flash","gemini-1.5-pro","gemini-1.5-flash");
+            case "Antigravity"->List.of("gemini-2.5-pro","gemini-2.5-flash","claude-3-7-sonnet","claude-3-5-sonnet");
+            case "Claude"->List.of("claude-3-7-sonnet","claude-3-5-sonnet","claude-3-5-haiku","claude-3-opus");
+            default->List.of();
+        };
+        Set<String> set=new LinkedHashSet<>(defaults);
+        try{
+            List<String> command=new ArrayList<>(resolve(str(settings,"command"),provider));
+            if(provider.equals("Antigravity")){
+                command.add("models");
+                Control ctrl=new Control();
+                String out=execute(command,"",null,Map.of(),ctrl,10000,l->{});
+                for(String line:out.split("\n")){
+                    String trimmed=line.trim();
+                    if(trimmed.startsWith("- ")&&trimmed.length()>2)set.add(trimmed.substring(2).trim());
+                    else if(!trimmed.isBlank()&&!trimmed.contains(" ")&&!trimmed.startsWith("Usage"))set.add(trimmed);
+                }
+            }
+        }catch(Exception ignored){}
+        return new ArrayList<>(set);
+    }
     Map<String,Object> doctor(Map<String,Object> config)throws Exception {
         Map<String,Object> result=new LinkedHashMap<>();for(String provider:PROVIDERS){
             try{var c=object(config.get(provider));if(provider.equals("Company")){Company.validate(c,false);result.put(provider,map("installed",!str(c,"baseUrl").isBlank(),"version","OpenAI 相容 HTTP；請按測試連線","authenticated",null));continue;}List<String> command=new ArrayList<>(resolve(str(c,"command"),provider));command.add(provider.equals("Antigravity")?"--help":"--version");Control ctrl=new Control();String out=execute(command,"",null,Map.of(),ctrl,12000,line->{});if(provider.equals("Antigravity")&&(!out.contains("--input-format")||!out.contains("--output-format")))throw new IOException("此執行檔不支援 headless；請安裝官方 agy CLI");

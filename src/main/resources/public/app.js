@@ -21,7 +21,7 @@ function render(){if(!state)return;const tasks=state.tasks,meetings=state.meetin
   if(!selectedTask&&tasks[0])selectedTask=tasks[0].id;if(!selectedMeeting&&meetings[0])selectedMeeting=meetings[0].id;
   $('#task-list').innerHTML=tasks.map(t=>`<button class="select-card ${t.id===selectedTask?'selected':''}" data-task="${t.id}"><strong>${escape(t.title)}</strong>${badge(t.status)} <small>${escape(t.owner)}</small></button>`).join('');renderTask();
   $('#meeting-list').innerHTML=meetings.map(m=>`<button class="select-card ${m.id===selectedMeeting?'selected':''}" data-meeting="${m.id}"><strong>${escape(m.topic)}</strong>${badge(m.status)}</button>`).join('');renderMeeting();
-  if(!configLoaded){const f=$('#config-form');f.elements.workspace.value=state.config.workspace;for(const p of ['Codex','Antigravity','Gemini','Claude']){f.elements[p.toLowerCase()+'Command'].value=state.config[p].command;f.elements[p.toLowerCase()+'Model'].value=state.config[p].model;}const co=state.config.Company;f.elements.companyBaseUrl.value=co.baseUrl;f.elements.companyModel.value=co.model;f.elements.companyQuotaUrl.value=co.quotaUrl||'';f.elements.companyTimeout.value=co.timeoutSeconds;f.elements.companyApiKey.placeholder=co.hasApiKey?'已保存；留白保留原 Key':'無需認證可留白';configLoaded=true;}
+  if(!configLoaded){const f=$('#config-form');f.elements.workspace.value=state.config.workspace;for(const p of ['Codex','Antigravity','Gemini','Claude']){f.elements[p.toLowerCase()+'Command'].value=state.config[p].command;f.elements[p.toLowerCase()+'Model'].value=state.config[p].model;}const co=state.config.Company;f.elements.companyBaseUrl.value=co.baseUrl;f.elements.companyModel.value=co.model;f.elements.companyQuotaUrl.value=co.quotaUrl||'';f.elements.companyTimeout.value=co.timeoutSeconds;f.elements.companyApiKey.placeholder=co.hasApiKey?'已保存；留白保留原 Key':'無需認證可留白';configLoaded=true;loadOptions();}
   renderUsage();drawRoom();
 }
 function renderTask(){const t=state.tasks.find(t=>t.id===selectedTask);if(!t)return;
@@ -44,6 +44,83 @@ bind('#meeting-form','submit',async e=>{e.preventDefault();const b=e.target.quer
 bind('#interject-form','submit',async e=>{e.preventDefault();const input=e.target.elements.text;await api('interject',{id:selectedMeeting,text:input.value});input.value='';toast('下一位發言者會收到你的補充');await refresh();});
 function configBody(){const f=$('#config-form').elements;return {workspace:f.workspace.value,Codex:{command:f.codexCommand.value,model:f.codexModel.value},Gemini:{command:f.geminiCommand.value,model:f.geminiModel.value},Antigravity:{command:f.antigravityCommand.value,model:f.antigravityModel.value},Claude:{command:f.claudeCommand.value,model:f.claudeModel.value},Company:{baseUrl:f.companyBaseUrl.value,quotaUrl:f.companyQuotaUrl.value,model:f.companyModel.value,apiKey:f.companyApiKey.value,clearApiKey:f.companyClearKey.checked,timeoutSeconds:Number(f.companyTimeout.value)}};}
 bind('#config-form','submit',async e=>{e.preventDefault();await api('config',configBody());$('#config-form').elements.companyApiKey.value='';$('#config-form').elements.companyClearKey.checked=false;configLoaded=false;toast('設定已保存');await refresh();});
+
+async function loadOptions(){
+  try{
+    const opts = await api('options');
+    const f = $('#config-form');
+    for(const p of ['Codex','Antigravity','Gemini','Claude']){
+      const prefix = p.toLowerCase();
+      const execSelect = $('#'+prefix+'CommandSelect');
+      const execInput = f.elements[prefix+'Command'];
+      if(execSelect){
+        const list = opts[p]?.executables || [];
+        const current = execInput.value.trim();
+        let html = list.map(x=>`<option value="${escape(x)}">${escape(x)}</option>`).join('');
+        html += `<option value="__custom__">自訂輸入...</option>`;
+        execSelect.innerHTML = html;
+        if(list.includes(current)){
+          execSelect.value = current;
+          execInput.style.display = 'none';
+        } else {
+          execSelect.value = '__custom__';
+          execInput.style.display = 'block';
+        }
+      }
+
+      const modelSelect = $('#'+prefix+'ModelSelect');
+      const modelInput = f.elements[prefix+'Model'];
+      if(modelSelect){
+        const list = opts[p]?.models || [];
+        const current = modelInput.value.trim();
+        let html = `<option value="">預設模型 (使用 CLI 預設)</option>`;
+        html += list.map(x=>`<option value="${escape(x)}">${escape(x)}</option>`).join('');
+        html += `<option value="__custom__">自訂輸入...</option>`;
+        modelSelect.innerHTML = html;
+        if(current === '' || list.includes(current)){
+          modelSelect.value = current;
+          modelInput.style.display = 'none';
+        } else {
+          modelSelect.value = '__custom__';
+          modelInput.style.display = 'block';
+        }
+      }
+    }
+
+    const companyModelSelect = $('#companyModelSelect');
+    const companyModelInput = f.elements.companyModel;
+    if(companyModelSelect){
+      const list = opts.Company?.models || [];
+      const current = companyModelInput.value.trim();
+      let html = `<option value="">請選擇或手動輸入...</option>`;
+      html += list.map(x=>`<option value="${escape(x)}">${escape(x)}</option>`).join('');
+      html += `<option value="__custom__">自訂輸入...</option>`;
+      companyModelSelect.innerHTML = html;
+      if(current === '' || list.includes(current)){
+        companyModelSelect.value = current;
+        companyModelInput.style.display = 'none';
+      } else {
+        companyModelSelect.value = '__custom__';
+        companyModelInput.style.display = 'block';
+      }
+    }
+  }catch(e){}
+}
+
+document.addEventListener('change', e=>{
+  const select = e.target.closest('select[data-for]');
+  if(!select) return;
+  const inputName = select.dataset.for;
+  const input = $('#config-form').elements[inputName];
+  if(!input) return;
+  if(select.value === '__custom__'){
+    input.style.display = 'block';
+    input.focus();
+  } else {
+    input.style.display = 'none';
+    input.value = select.value;
+  }
+});
 bind('#claude-login','click',async()=>{await api('config',configBody());const r=await api('claude-login',{});toast(r.message);});
 bind('#company-test','click',async e=>{e.target.disabled=true;try{await api('config',configBody());const r=await api('company-test',{});$('#check-result').textContent='公司模型連線成功 · '+r.model+'\n'+r.response;}finally{$('#company-test').disabled=false;}});
 bind('#check-cli','click',async e=>{const b=e.target;b.disabled=true;$('#check-result').textContent='正在檢查 CLI 版本…';try{await api('config',configBody());const r=await api('check',{});$('#check-result').textContent=Object.entries(r).map(([p,c])=>p+'：'+(c.installed?'已找到 · '+c.version+(c.warning?'\n  '+c.warning:''):'未找到 · '+c.error)).join('\n')+'\n版本檢查不代表已登入。第一個任務成功後，會顯示最近呼叫成功。';await refresh();}finally{b.disabled=false;}});

@@ -39,6 +39,15 @@ final class Office implements AutoCloseable {
         boolean changed=!stringify(c).equals(stringify(state.get("config")));state.put("config",c);if(changed){state.put("connections",map());quotas.clear();quotaChecked=0;}event("系統","連線設定已更新");save();return object(view()).get("config");
     }
     Object check()throws Exception {var c=config();var result=agents.doctor(c);synchronized(this){if(stringify(c).equals(stringify(state.get("config")))){state.put("connections",result);event("系統","CLI 檢查完成；版本檢查不等於已登入");save();}}return result;}
+    Object discoverOptions()throws Exception {
+        var c=config();Map<String,Object> res=new LinkedHashMap<>();
+        for(String p:Agents.PROVIDERS){
+            List<String> execs=Agents.findExecutables(p);
+            List<String> models=agents.discoverModels(p,c);
+            res.put(p,map("executables",execs,"models",models));
+        }
+        return res;
+    }
     Object testCompany()throws Exception{var c=config();var r=Company.run("請只回答 OK",object(c.get("Company")),new Agents.Control(),v->{});synchronized(this){if(stringify(c).equals(stringify(config())))success("Company",r);var checks=array(state.get("usageChecks"));checks.add(map("provider","Company","usage",r.usage(),"model",r.model(),"at",now()));while(checks.size()>200)checks.remove(0);saved();}return map("ok",true,"model",r.model(),"response",r.text());}
     Object refreshQuota()throws Exception {
         Map<String,Object> c; synchronized(this){if(quotaBusy||System.currentTimeMillis()-quotaChecked<60000)return map("ok",true);quotaBusy=true;c=config();}

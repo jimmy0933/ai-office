@@ -31,7 +31,7 @@ public final class Main {
             }
             if(!token.equals(x.getRequestHeaders().getFirst("X-Office-Token"))){respond(x,403,map("error","請重新開啟辦公室頁面"));return;}
             if(method.equals("GET")){
-                var query=query(x.getRequestURI().getRawQuery());Object result=switch(path){case "/api/state"->office.view();case "/api/files"->office.files(query.getOrDefault("dir",""));case "/api/file"->office.file(query.getOrDefault("path",""));case "/api/export"->office.view();default->throw new IllegalArgumentException("找不到此 API");};respond(x,200,result);return;
+                var query=query(x.getRequestURI().getRawQuery());Object result=switch(path){case "/api/state"->office.view();case "/api/files"->office.files(query.getOrDefault("dir",""));case "/api/file"->office.file(query.getOrDefault("path",""));case "/api/export"->office.view();case "/api/options"->office.discoverOptions();default->throw new IllegalArgumentException("找不到此 API");};respond(x,200,result);return;
             }
             if(!method.equals("POST")){respond(x,405,map("error","Method not allowed"));return;}
             if(!origin.equals(requestOrigin)){respond(x,403,map("error","Origin 驗證失敗"));return;}
