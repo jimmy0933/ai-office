@@ -1,4 +1,4 @@
-# AI Office Java 本機版 v0.7.2
+# AI Office Java 本機版 v0.8.0
 
 需要 Java 17 以上。辦公室在本機執行，模型回答仍需連線至所選服務。
 
@@ -94,8 +94,8 @@ https://antigravity.google/docs/cli/commands/usage/
 
 `test-view.cjs` 需 Node.js 與 Playwright，執行 `node test-view.cjs`；可用 CHROME_PATH 指定既有 Chromium 執行檔，PLAYWRIGHT_MODULE 指定 Playwright 模組。測試啟動臨時資料目錄與本機模擬服務，不使用真實帳號或公司網路。
 
-## v0.7.2 第二輪 Review
+## v0.8.0 第二輪 Review
 
 修正非有限 JSON 數值、Gemini 異常 usage 導致狀態更新失敗、常見私鑰檔附加，以及公司測試連線的 Token 漏算。成功公司連線測試保存最近 200 筆，統計包含診斷呼叫；非永久帳單。
 
-驗證：27 個核心斷言、90 個整合斷言通過；Chromium 五工具任務、五方會議及六頁三種寬度操作通過。完整測案、review 發現及真實環境待驗項目見 `AI-Office-Test-Review-v0.7.2.md`。
+驗證：27 個核心斷言、90 個整合斷言通過；Chromium 五工具任務、五方會議及六頁三種寬度操作通過。完整測案、review 發現及真實環境待驗項目見 `AI-Office-Test-Review-v0.8.0.md`。
